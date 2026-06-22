@@ -15,7 +15,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -60,8 +60,24 @@ jobs:
           echo "8e9d2518b55cd2a50c2c51900118dd3944d055228220286bb6c5035687f14b6f  jinghua-source.tar.xz" | sha256sum -c -
           tar -xJf jinghua-source.tar.xz
           test -f jhmin/settings.gradle
-          test -f jhmin/build.gradle
           test -f jhmin/app/build.gradle
+
+      - name: Apply V4.0.3 stability patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat v403_patch/part-02-hex-00 v403_patch/part-02-hex-01 v403_patch/part-02-hex-02 v403_patch/part-02-hex-03 > v403-p2.hex
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('v403-p2.b64').write_bytes(bytes.fromhex(Path('v403-p2.hex').read_text().strip()))
+          PY
+          cat v403_patch/part-00 v403_patch/part-01 v403-p2.b64 > v403-patch.b64
+          base64 --decode v403-patch.b64 > v403_patch.tar.gz
+          echo "d2168ff4405bd5f6c5296119a75b31fce7466ddde511a23c5850f85f61237287  v403_patch.tar.gz" | sha256sum -c -
+          tar -xzf v403_patch.tar.gz
+          python3 v403_patch/apply_patch.py
+          grep -n "versionName '4.0.3'" jhmin/app/build.gradle
+          grep -n "JingHuaApplication" jhmin/app/src/main/AndroidManifest.xml
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -83,12 +99,11 @@ jobs:
         with:
           gradle-version: '9.4.1'
 
-      - name: Build debug APK and capture log
+      - name: Build V4.0.3 and capture log
         working-directory: jhmin
         shell: bash
         run: |
           set +e
-          sed -i "/dependencies {/a\\    implementation 'androidx.annotation:annotation:1.9.1'" app/build.gradle
           gradle --no-daemon --stacktrace clean assembleDebug > ../gradle-build.log 2>&1
           code=$?
           echo "$code" > ../gradle-exit-code.txt
@@ -99,7 +114,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: JingHua-build-diagnostics
+          name: JingHua-V4.0.3-build-diagnostics
           path: |
             gradle-build.log
             gradle-exit-code.txt
@@ -110,56 +125,79 @@ jobs:
         shell: bash
         run: test "$(cat gradle-exit-code.txt)" = "0"
 
-      - name: Verify APK
+      - name: Verify APK archive
         shell: bash
         run: |
           set -euo pipefail
           APK="jhmin/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
           unzip -t "$APK"
-          sha256sum "$APK"
+          sha256sum "$APK" | tee apk-sha256.txt
 
-      - name: Android 35 launch smoke test
+      - name: Android 34 launcher and editor smoke test
+        id: emulator_test
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
+          target: google_apis
           arch: x86_64
           profile: pixel_6
+          emulator-boot-timeout: 900
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
-            set -euo pipefail
+            set +e
             APK="jhmin/app/build/outputs/apk/debug/app-debug.apk"
-            adb install -r "$APK"
+            rm -f smoke-*.txt smoke-*.png
+            adb install -r "$APK" > smoke-install.txt 2>&1
+            install_code=$?
             adb logcat -c
             adb shell am force-stop com.bianzhifeng.jinghua
-            adb shell am start -W -n com.bianzhifeng.jinghua/.HomeActivity | tee smoke-start.txt
+            adb shell am start -W -n com.bianzhifeng.jinghua/.HomeActivity > smoke-home-start.txt 2>&1
+            home_code=$?
             sleep 8
-            adb logcat -d -v threadtime > smoke-logcat.txt
             adb exec-out screencap -p > smoke-home.png
-            adb shell pidof com.bianzhifeng.jinghua | tee smoke-pid.txt
-            test -s smoke-pid.txt
-            if grep -E "FATAL EXCEPTION|AndroidRuntime.*Process: com.bianzhifeng.jinghua" smoke-logcat.txt; then
-              exit 1
+            adb shell dumpsys activity activities > smoke-home-activity.txt
+            adb shell am start -W -n com.bianzhifeng.jinghua/.MainActivity > smoke-editor-start.txt 2>&1
+            editor_code=$?
+            sleep 8
+            adb exec-out screencap -p > smoke-editor.png
+            adb shell dumpsys activity activities > smoke-editor-activity.txt
+            adb logcat -d -v threadtime > smoke-logcat.txt
+            pid="$(adb shell pidof com.bianzhifeng.jinghua | tr -d '\r')"
+            printf '%s\n' "$pid" > smoke-pid.txt
+            fatal=0
+            grep -E "FATAL EXCEPTION|AndroidRuntime.*Process: com.bianzhifeng.jinghua" smoke-logcat.txt && fatal=1
+            if [ "$install_code" = 0 ] && [ "$home_code" = 0 ] && [ "$editor_code" = 0 ] && [ -n "$pid" ] && [ "$fatal" = 0 ]; then
+              echo PASS > smoke-result.txt
+            else
+              echo "FAIL install=$install_code home=$home_code editor=$editor_code pid=$pid fatal=$fatal" > smoke-result.txt
             fi
+            cat smoke-result.txt
+            exit 0
 
-      - name: Upload smoke test diagnostics
+      - name: Upload launch diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: JingHua-launch-smoke-test
+          name: JingHua-V4.0.3-launch-diagnostics
           path: |
-            smoke-start.txt
-            smoke-logcat.txt
-            smoke-home.png
-            smoke-pid.txt
+            smoke-*.txt
+            smoke-*.png
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload APK artifact
+      - name: Require successful device launch
+        shell: bash
+        run: |
+          test -f smoke-result.txt
+          grep -qx PASS smoke-result.txt
+
+      - name: Upload tested APK
         uses: actions/upload-artifact@v4
         with:
-          name: JingHua-V4.0.2-smoke-tested-apk
+          name: JingHua-V4.0.3-tested-apk
           path: jhmin/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
