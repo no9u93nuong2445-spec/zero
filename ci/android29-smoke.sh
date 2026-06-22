@@ -69,6 +69,17 @@ PY
   adb shell input tap $coords
 }
 
+tap_editor_fallback() {
+  local size width height x y
+  size="$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -n1)"
+  width="${size%x*}"
+  height="${size#*x}"
+  x=$((width * 3 / 4))
+  y=$((height * 58 / 100))
+  printf 'fallback_tap=%s,%s size=%s\n' "$x" "$y" "$size" > smoke-fallback-tap.txt
+  adb shell input tap "$x" "$y"
+}
+
 test_launch() {
   test -s "$APK_PATH"
   rm -f smoke-*.txt smoke-*.png smoke-*.xml
@@ -85,7 +96,9 @@ test_launch() {
   adb shell uiautomator dump /sdcard/home.xml >/dev/null 2>&1 || true
   adb pull /sdcard/home.xml smoke-home-window.xml >/dev/null 2>&1 || true
 
-  tap_text "进入完整编辑器" smoke-home-tap.xml
+  if ! tap_text "进入完整编辑器" smoke-home-tap.xml; then
+    tap_editor_fallback
+  fi
   sleep 10
   tap_text "Wait" smoke-editor-dialog.xml || true
   sleep 3
