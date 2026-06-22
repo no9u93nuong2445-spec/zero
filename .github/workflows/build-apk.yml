@@ -83,9 +83,32 @@ jobs:
         with:
           gradle-version: '9.4.1'
 
-      - name: Build debug APK
+      - name: Build debug APK and capture log
         working-directory: jhmin
-        run: gradle --no-daemon --stacktrace clean assembleDebug
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon --stacktrace clean assembleDebug > ../gradle-build.log 2>&1
+          code=$?
+          echo "$code" > ../gradle-exit-code.txt
+          tail -n 250 ../gradle-build.log
+          exit 0
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-build-diagnostics
+          path: |
+            gradle-build.log
+            gradle-exit-code.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Stop if Gradle failed
+        shell: bash
+        run: |
+          test "$(cat gradle-exit-code.txt)" = "0"
 
       - name: Verify APK
         shell: bash
