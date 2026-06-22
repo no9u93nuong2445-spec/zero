@@ -25,7 +25,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat source_parts/part-* > source.b64
+          echo "5616485f94a7b8941efdda0b3344df59cde35d45  source_parts/part-02-00" | git hash-object --stdin >/dev/null
+          cat \
+            source_parts/part-00 \
+            source_parts/part-01 \
+            source_parts/part-02-00 \
+            source_parts/part-02-01 \
+            source_parts/part-02-02 \
+            source_parts/part-02-03 \
+            source_parts/part-02-04 \
+            source_parts/part-02-05 \
+            source_parts/part-02-06 \
+            source_parts/part-02-07 \
+            source_parts/part-03 \
+            source_parts/part-04 \
+            source_parts/part-05 > source.b64
           base64 --decode source.b64 > jinghua-source.tar.xz
           echo "8e9d2518b55cd2a50c2c51900118dd3944d055228220286bb6c5035687f14b6f  jinghua-source.tar.xz" | sha256sum -c -
           tar -xJf jinghua-source.tar.xz
