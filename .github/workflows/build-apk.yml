@@ -15,7 +15,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     steps:
       - name: Checkout repository
@@ -108,8 +108,7 @@ jobs:
 
       - name: Stop if Gradle failed
         shell: bash
-        run: |
-          test "$(cat gradle-exit-code.txt)" = "0"
+        run: test "$(cat gradle-exit-code.txt)" = "0"
 
       - name: Verify APK
         shell: bash
@@ -120,10 +119,47 @@ jobs:
           unzip -t "$APK"
           sha256sum "$APK"
 
+      - name: Android 35 launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            APK="jhmin/app/build/outputs/apk/debug/app-debug.apk"
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell am force-stop com.bianzhifeng.jinghua
+            adb shell am start -W -n com.bianzhifeng.jinghua/.HomeActivity | tee smoke-start.txt
+            sleep 8
+            adb logcat -d -v threadtime > smoke-logcat.txt
+            adb exec-out screencap -p > smoke-home.png
+            adb shell pidof com.bianzhifeng.jinghua | tee smoke-pid.txt
+            test -s smoke-pid.txt
+            if grep -E "FATAL EXCEPTION|AndroidRuntime.*Process: com.bianzhifeng.jinghua" smoke-logcat.txt; then
+              exit 1
+            fi
+
+      - name: Upload smoke test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-launch-smoke-test
+          path: |
+            smoke-start.txt
+            smoke-logcat.txt
+            smoke-home.png
+            smoke-pid.txt
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JingHua-V4.0.2-debug-apk
+          name: JingHua-V4.0.2-smoke-tested-apk
           path: jhmin/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
