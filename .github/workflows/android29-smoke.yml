@@ -23,7 +23,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
-      - name: Android 10 launch verification
+      - name: Build V4.0.3 before starting emulator
+        run: bash ci/android29-smoke.sh build
+      - name: Android 10 launcher and editor verification
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -32,7 +34,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 600
           disable-animations: true
-          script: bash ci/android29-smoke.sh
+          script: bash ci/android29-smoke.sh test
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -41,6 +43,7 @@ jobs:
           path: |
             smoke-*.txt
             smoke-*.png
+            smoke-*.xml
             gradle-api29.log
             apk-api29-sha256.txt
           if-no-files-found: warn
