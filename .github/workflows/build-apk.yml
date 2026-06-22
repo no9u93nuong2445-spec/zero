@@ -25,7 +25,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "5616485f94a7b8941efdda0b3344df59cde35d45  source_parts/part-02-00" | git hash-object --stdin >/dev/null
+          cat \
+            source_parts/part-03-hex-00 \
+            source_parts/part-03-hex-01 \
+            source_parts/part-03-hex-02 \
+            source_parts/part-03-hex-03 \
+            source_parts/part-03-hex-04 \
+            source_parts/part-03-hex-05-00 \
+            source_parts/part-03-hex-05-01 \
+            source_parts/part-03-hex-05-02 \
+            source_parts/part-03-hex-05-03 \
+            source_parts/part-03-hex-06-00 \
+            source_parts/part-03-hex-07-00 > part03.hex
+          python3 - <<'PY'
+          from pathlib import Path
+          raw = Path('part03.hex').read_text(encoding='ascii').strip()
+          Path('part03.b64').write_bytes(bytes.fromhex(raw))
+          PY
           cat \
             source_parts/part-00 \
             source_parts/part-01 \
@@ -37,7 +53,7 @@ jobs:
             source_parts/part-02-05 \
             source_parts/part-02-06 \
             source_parts/part-02-07 \
-            source_parts/part-03 \
+            part03.b64 \
             source_parts/part-04 \
             source_parts/part-05 > source.b64
           base64 --decode source.b64 > jinghua-source.tar.xz
