@@ -36,11 +36,10 @@ echo "d2168ff4405bd5f6c5296119a75b31fce7466ddde511a23c5850f85f61237287  v403_pat
 tar -xzf v403_patch.tar.gz
 python3 v403_patch/apply_patch.py
 
-cp functional_test/FunctionalExportActivity.java \
-  jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
+base64 --decode functional_test/FunctionalExportActivity_v404.java.gz.b64 \
+  | gzip -dc > jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
 base64 --decode functional_test/fragment_region_es2_v404.glsl.gz.b64 \
   | gzip -dc > jhmin/app/src/main/res/raw/fragment_region_es2.glsl
-python3 functional_test/apply_v404d.py
 python3 - <<'PY'
 from pathlib import Path
 manifest = Path('jhmin/app/src/main/AndroidManifest.xml')
@@ -61,19 +60,17 @@ FONT="$(fc-match -f '%{file}\n' 'DejaVu Sans:style=Bold' | head -n1)"
 test -f "$FONT"
 printf 'font=%s\n' "$FONT"
 BASE="testsrc2=size=360x640:rate=30:duration=4.2"
+AUDIO="sine=frequency=880:sample_rate=44100:duration=4.2"
 VIDEO_FILTER="drawtext=fontfile=${FONT}:text='SUBTITLE TEST':fontcolor=white:fontsize=24:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*0.82,format=yuv420p"
 
-ffmpeg -y -v warning -f lavfi -i "$BASE" \
+ffmpeg -y -v warning -f lavfi -i "$BASE" -f lavfi -i "$AUDIO" \
   -vf "format=yuv420p" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
-  -an -movflags +faststart functional-results/clean-noaudio.mp4
-ffmpeg -y -v warning -f lavfi -i "$BASE" \
-  -vf "$VIDEO_FILTER" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
-  -an -movflags +faststart functional-results/input-noaudio.mp4
-ffmpeg -y -v warning -f lavfi -i "$BASE" -f lavfi -i "sine=frequency=880:sample_rate=44100:duration=4.2" \
+  -c:a aac -b:a 96k -shortest -movflags +faststart functional-results/clean-audio.mp4
+ffmpeg -y -v warning -f lavfi -i "$BASE" -f lavfi -i "$AUDIO" \
   -vf "$VIDEO_FILTER" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
   -c:a aac -b:a 96k -shortest -movflags +faststart functional-results/input-audio.mp4
-cp functional-results/clean-noaudio.mp4 functional-results/clean.mp4
+cp functional-results/clean-audio.mp4 functional-results/clean.mp4
 cp functional-results/input-audio.mp4 functional-results/input.mp4
-for f in functional-results/clean-noaudio.mp4 functional-results/input-noaudio.mp4 functional-results/input-audio.mp4; do
+for f in functional-results/clean-audio.mp4 functional-results/input-audio.mp4; do
   ffprobe -v error -show_entries format=duration,size -of json "$f"
 done
