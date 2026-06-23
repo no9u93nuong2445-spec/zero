@@ -38,6 +38,8 @@ python3 v403_patch/apply_patch.py
 
 cp functional_test/FunctionalExportActivity.java \
   jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
+base64 --decode functional_test/fragment_region_es2_v404.glsl.gz.b64 \
+  | gzip -dc > jhmin/app/src/main/res/raw/fragment_region_es2.glsl
 python3 - <<'PY'
 from pathlib import Path
 manifest = Path('jhmin/app/src/main/AndroidManifest.xml')
@@ -58,7 +60,7 @@ FONT="$(fc-match -f '%{file}\n' 'DejaVu Sans:style=Bold' | head -n1)"
 test -f "$FONT"
 printf 'font=%s\n' "$FONT"
 BASE="testsrc2=size=360x640:rate=30:duration=4.2"
-VIDEO_FILTER="drawtext=fontfile=${FONT}:text='SUBTITLE TEST 2026':fontcolor=white:fontsize=28:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h*0.82,format=yuv420p"
+VIDEO_FILTER="drawtext=fontfile=${FONT}:text='SUBTITLE TEST':fontcolor=white:fontsize=24:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*0.82,format=yuv420p"
 
 ffmpeg -y -v warning -f lavfi -i "$BASE" \
   -vf "format=yuv420p" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
