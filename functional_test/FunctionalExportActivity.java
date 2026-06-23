@@ -1,10 +1,12 @@
 package com.bianzhifeng.jinghua;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.TextView;
+import androidx.media3.common.Effect;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.transformer.Composition;
@@ -16,14 +18,19 @@ import androidx.media3.transformer.Transformer;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 /** CI-only end-to-end export harness. Not included in user-facing release builds. */
 public final class FunctionalExportActivity extends Activity {
     private Transformer transformer;
     private TextView statusView;
-    private File testDir;
     private File markerFile;
+    private File outputFile;
+    private String caseName;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,43 +43,42 @@ public final class FunctionalExportActivity extends Activity {
 
         File external = getExternalFilesDir(null);
         if (external == null) {
-            finishWithError("external_files_dir_unavailable");
+            finishWithError("external_files_dir_unavailable", null);
             return;
         }
-        testDir = new File(external, "functional-test");
+        File testDir = new File(external, "functional-test");
         if (!testDir.exists() && !testDir.mkdirs()) {
-            finishWithError("cannot_create_test_dir");
-            return;
-        }
-        markerFile = new File(testDir, "result.txt");
-        File input = new File(testDir, "input.mp4");
-        File output = new File(testDir, "output.mp4");
-        if (markerFile.exists()) markerFile.delete();
-        if (output.exists()) output.delete();
-        if (!input.isFile() || input.length() < 1024L) {
-            finishWithError("input_missing_or_too_small");
+            finishWithError("cannot_create_test_dir", null);
             return;
         }
 
-        long durationMs = 4200L;
-        RectF subtitleRegion = new RectF(0.06f, 0.76f, 0.94f, 0.93f);
-        RegionTrack repairTrack = RegionTrack.fixed(
-                subtitleRegion,
-                durationMs,
-                RegionEffect.MODE_REPAIR_HQ,
-                0.72f);
-        RegionEffect effect = new RegionEffect(
-                Collections.singletonList(repairTrack),
-                null,
-                true,
-                true);
+        Intent intent = getIntent();
+        caseName = safeName(intent.getStringExtra("case_name"), "default");
+        String inputName = safeName(intent.getStringExtra("input_name"), "input.mp4");
+        String outputName = safeName(intent.getStringExtra("output_name"), "output.mp4");
+        String markerName = safeName(intent.getStringExtra("marker_name"), "result.txt");
+        String modeName = intent.getStringExtra("mode");
+        boolean removeAudio = intent.getBooleanExtra("remove_audio", false);
+
+        File input = new File(testDir, inputName);
+        outputFile = new File(testDir, outputName);
+        markerFile = new File(testDir, markerName);
+        if (markerFile.exists()) markerFile.delete();
+        if (outputFile.exists()) outputFile.delete();
+        if (!input.isFile() || input.length() < 1024L) {
+            finishWithError("input_missing_or_too_small:" + input.getAbsolutePath(), null);
+            return;
+        }
 
         MediaItem item = new MediaItem.Builder().setUri(Uri.fromFile(input)).build();
-        EditedMediaItem edited = new EditedMediaItem.Builder(item)
-                .setEffects(new Effects(
-                        Collections.emptyList(),
-                        Collections.singletonList(effect)))
-                .build();
+        EditedMediaItem.Builder editedBuilder = new EditedMediaItem.Builder(item)
+                .setRemoveAudio(removeAudio);
+
+        List<Effect> videoEffects = createVideoEffects(modeName);
+        if (!videoEffects.isEmpty()) {
+            editedBuilder.setEffects(new Effects(Collections.emptyList(), videoEffects));
+        }
+        EditedMediaItem edited = editedBuilder.build();
 
         transformer = new Transformer.Builder(this)
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
@@ -82,12 +88,16 @@ public final class FunctionalExportActivity extends Activity {
                 .addListener(new Transformer.Listener() {
                     @Override
                     public void onCompleted(Composition composition, ExportResult exportResult) {
-                        if (!output.isFile() || output.length() < 1024L) {
-                            finishWithError("completed_but_output_invalid");
+                        if (!outputFile.isFile() || outputFile.length() < 1024L) {
+                            finishWithError("completed_but_output_invalid", null);
                             return;
                         }
-                        writeMarker("PASS\nbytes=" + output.length());
-                        statusView.setText("PASS: output bytes=" + output.length());
+                        String result = "PASS\ncase=" + caseName
+                                + "\nbytes=" + outputFile.length()
+                                + "\naudio_removed=" + removeAudio
+                                + "\nmode=" + String.valueOf(modeName);
+                        writeMarker(result);
+                        statusView.setText("PASS " + caseName + ": " + outputFile.length() + " bytes");
                     }
 
                     @Override
@@ -95,22 +105,78 @@ public final class FunctionalExportActivity extends Activity {
                             Composition composition,
                             ExportResult exportResult,
                             ExportException exportException) {
-                        finishWithError("transformer_error:" + summarize(exportException));
+                        finishWithError("transformer_error", exportException);
                     }
                 })
                 .build();
 
-        statusView.setText("Exporting subtitle-repair test video…");
+        statusView.setText("Exporting case: " + caseName);
         try {
-            transformer.start(edited, output.getAbsolutePath());
+            transformer.start(edited, outputFile.getAbsolutePath());
         } catch (Throwable error) {
-            finishWithError("start_error:" + summarize(error));
+            finishWithError("start_error", error);
         }
     }
 
-    private void finishWithError(String message) {
-        writeMarker("FAIL\n" + message);
-        if (statusView != null) statusView.setText("FAIL: " + message);
+    private List<Effect> createVideoEffects(String modeName) {
+        if (modeName == null || modeName.isEmpty() || "none".equals(modeName)) {
+            return Collections.emptyList();
+        }
+        int mode;
+        float strength;
+        boolean temporal;
+        if ("blur".equals(modeName)) {
+            mode = RegionEffect.MODE_BLUR;
+            strength = 0.72f;
+            temporal = false;
+        } else if ("repair_fast".equals(modeName)) {
+            mode = RegionEffect.MODE_REPAIR_FAST;
+            strength = 0.72f;
+            temporal = false;
+        } else {
+            mode = RegionEffect.MODE_REPAIR_HQ;
+            strength = 0.72f;
+            temporal = true;
+        }
+
+        long durationMs = 4200L;
+        RectF subtitleRegion = new RectF(0.06f, 0.76f, 0.94f, 0.93f);
+        RegionTrack track = RegionTrack.fixed(subtitleRegion, durationMs, mode, strength);
+        RegionEffect effect = new RegionEffect(
+                Collections.singletonList(track),
+                null,
+                temporal,
+                temporal);
+        List<Effect> effects = new ArrayList<>();
+        effects.add(effect);
+        return effects;
+    }
+
+    private void finishWithError(String message, Throwable error) {
+        StringBuilder detail = new StringBuilder();
+        detail.append("FAIL\ncase=").append(caseName == null ? "unknown" : caseName)
+                .append("\nreason=").append(message == null ? "unknown" : message);
+        if (error != null) {
+            detail.append("\nexception=").append(error.getClass().getName())
+                    .append("\nmessage=").append(String.valueOf(error.getMessage()));
+            if (error instanceof ExportException) {
+                detail.append("\nerror_code=").append(((ExportException) error).errorCode);
+            }
+            Throwable cause = error.getCause();
+            int depth = 0;
+            while (cause != null && depth < 8) {
+                detail.append("\ncause_").append(depth).append('=')
+                        .append(cause.getClass().getName()).append(':')
+                        .append(String.valueOf(cause.getMessage()));
+                cause = cause.getCause();
+                depth++;
+            }
+            StringWriter stack = new StringWriter();
+            error.printStackTrace(new PrintWriter(stack));
+            detail.append("\nstack=\n").append(stack.toString());
+        }
+        writeMarker(detail.toString());
+        if (statusView != null) statusView.setText("FAIL " + caseName + ": " + message);
     }
 
     private void writeMarker(String text) {
@@ -122,10 +188,10 @@ public final class FunctionalExportActivity extends Activity {
         }
     }
 
-    private static String summarize(Throwable error) {
-        if (error == null) return "unknown";
-        String message = error.getMessage();
-        return error.getClass().getSimpleName() + ":" + (message == null ? "" : message.replace('\n', ' '));
+    private static String safeName(String value, String fallback) {
+        if (value == null || value.trim().isEmpty()) return fallback;
+        String clean = value.replaceAll("[^A-Za-z0-9._-]", "_");
+        return clean.isEmpty() ? fallback : clean;
     }
 
     @Override
