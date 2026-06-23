@@ -59,6 +59,7 @@ jobs:
           path: |
             functional-results/
             functional-gradle.log
+            functional-prepare.log
           if-no-files-found: error
           retention-days: 14
       - name: Require actual subtitle-removal success
