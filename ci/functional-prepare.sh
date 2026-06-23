@@ -58,11 +58,19 @@ FONT="$(fc-match -f '%{file}\n' 'DejaVu Sans:style=Bold' | head -n1)"
 test -f "$FONT"
 printf 'font=%s\n' "$FONT"
 BASE="testsrc2=size=360x640:rate=30:duration=4.2"
-ffmpeg -y -v warning -f lavfi -i "$BASE" -f lavfi -i "sine=frequency=880:sample_rate=44100:duration=4.2" \
+VIDEO_FILTER="drawtext=fontfile=${FONT}:text='SUBTITLE TEST 2026':fontcolor=white:fontsize=28:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h*0.82,format=yuv420p"
+
+ffmpeg -y -v warning -f lavfi -i "$BASE" \
   -vf "format=yuv420p" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
-  -c:a aac -b:a 96k -shortest -movflags +faststart functional-results/clean.mp4
+  -an -movflags +faststart functional-results/clean-noaudio.mp4
+ffmpeg -y -v warning -f lavfi -i "$BASE" \
+  -vf "$VIDEO_FILTER" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
+  -an -movflags +faststart functional-results/input-noaudio.mp4
 ffmpeg -y -v warning -f lavfi -i "$BASE" -f lavfi -i "sine=frequency=880:sample_rate=44100:duration=4.2" \
-  -vf "drawtext=fontfile=${FONT}:text='SUBTITLE TEST 2026':fontcolor=white:fontsize=28:borderw=4:bordercolor=black:x=(w-text_w)/2:y=h*0.82,format=yuv420p" \
-  -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
-  -c:a aac -b:a 96k -shortest -movflags +faststart functional-results/input.mp4
-ffprobe -v error -show_entries format=duration,size -of json functional-results/input.mp4
+  -vf "$VIDEO_FILTER" -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 18 \
+  -c:a aac -b:a 96k -shortest -movflags +faststart functional-results/input-audio.mp4
+cp functional-results/clean-noaudio.mp4 functional-results/clean.mp4
+cp functional-results/input-audio.mp4 functional-results/input.mp4
+for f in functional-results/clean-noaudio.mp4 functional-results/input-noaudio.mp4 functional-results/input-audio.mp4; do
+  ffprobe -v error -show_entries format=duration,size -of json "$f"
+done
