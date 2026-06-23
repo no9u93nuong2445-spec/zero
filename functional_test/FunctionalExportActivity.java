@@ -140,7 +140,7 @@ public final class FunctionalExportActivity extends Activity {
         }
 
         long durationMs = 4200L;
-        RectF subtitleRegion = new RectF(0.06f, 0.76f, 0.94f, 0.93f);
+        RectF subtitleRegion = new RectF(0.08f, 0.76f, 0.92f, 0.93f);
         RegionTrack track = RegionTrack.fixed(subtitleRegion, durationMs, mode, strength);
         RegionEffect effect = new RegionEffect(
                 Collections.singletonList(track),
