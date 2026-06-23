@@ -36,8 +36,12 @@ echo "d2168ff4405bd5f6c5296119a75b31fce7466ddde511a23c5850f85f61237287  v403_pat
 tar -xzf v403_patch.tar.gz
 python3 v403_patch/apply_patch.py
 
-base64 --decode functional_test/FunctionalExportActivity_v404.java.gz.b64 \
-  | gzip -dc > jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
+cat functional_test/fea_parts/part-00 \
+    functional_test/fea_parts/part-01 \
+    functional_test/fea_parts/part-02 \
+    functional_test/fea_parts/part-03 > functional-activity.b64
+base64 --decode functional-activity.b64 | gzip -dc \
+  > jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
 base64 --decode functional_test/fragment_region_es2_v404.glsl.gz.b64 \
   | gzip -dc > jhmin/app/src/main/res/raw/fragment_region_es2.glsl
 python3 - <<'PY'
