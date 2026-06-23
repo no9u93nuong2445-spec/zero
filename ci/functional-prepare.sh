@@ -40,6 +40,7 @@ cp functional_test/FunctionalExportActivity.java \
   jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
 base64 --decode functional_test/fragment_region_es2_v404.glsl.gz.b64 \
   | gzip -dc > jhmin/app/src/main/res/raw/fragment_region_es2.glsl
+python3 functional_test/apply_v404d.py
 python3 - <<'PY'
 from pathlib import Path
 manifest = Path('jhmin/app/src/main/AndroidManifest.xml')
