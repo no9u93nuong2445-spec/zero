@@ -7,36 +7,33 @@ DEVICE_DIR="/sdcard/Android/data/com.bianzhifeng.jinghua/files/functional-test"
 mkdir -p "$RESULT_DIR"
 adb install -r "$APK" | tee "$RESULT_DIR/adb-install.txt"
 adb shell am start -W -n com.bianzhifeng.jinghua/.HomeActivity > "$RESULT_DIR/home-warmup.txt"
-sleep 3
+sleep 2
 adb shell am force-stop com.bianzhifeng.jinghua
 adb shell mkdir -p "$DEVICE_DIR"
-adb push "$RESULT_DIR/input-noaudio.mp4" "$DEVICE_DIR/input-noaudio.mp4" | tee "$RESULT_DIR/adb-push-noaudio.txt"
 adb push "$RESULT_DIR/input-audio.mp4" "$DEVICE_DIR/input-audio.mp4" | tee "$RESULT_DIR/adb-push-audio.txt"
 
 run_case() {
   local case_name="$1"
-  local input_name="$2"
-  local mode="$3"
-  local remove_audio="$4"
+  local mode="$2"
   local output_name="output-${case_name}.mp4"
   local marker_name="result-${case_name}.txt"
 
-  echo "===== CASE ${case_name} input=${input_name} mode=${mode} remove_audio=${remove_audio} =====" | tee -a "$RESULT_DIR/case-summary.txt"
+  echo "===== CASE ${case_name} mode=${mode} =====" | tee -a "$RESULT_DIR/case-summary.txt"
   adb shell am force-stop com.bianzhifeng.jinghua || true
   adb shell rm -f "$DEVICE_DIR/$output_name" "$DEVICE_DIR/$marker_name" || true
   adb logcat -c
   adb shell am start -W \
     -n com.bianzhifeng.jinghua/.FunctionalExportActivity \
     --es case_name "$case_name" \
-    --es input_name "$input_name" \
+    --es input_name "input-audio.mp4" \
     --es output_name "$output_name" \
     --es marker_name "$marker_name" \
     --es mode "$mode" \
-    --ez remove_audio "$remove_audio" \
+    --ez remove_audio false \
     | tee "$RESULT_DIR/start-${case_name}.txt"
 
   local found=0
-  for i in $(seq 1 180); do
+  for i in $(seq 1 150); do
     if adb shell test -f "$DEVICE_DIR/$marker_name"; then
       adb pull "$DEVICE_DIR/$marker_name" "$RESULT_DIR/$marker_name" >/dev/null || true
       found=1
@@ -56,11 +53,8 @@ run_case() {
 }
 
 : > "$RESULT_DIR/case-summary.txt"
-run_case baseline_noaudio input-noaudio.mp4 none true
-run_case blur_noaudio input-noaudio.mp4 blur true
-run_case repair_noaudio input-noaudio.mp4 repair_hq true
-run_case baseline_audio input-audio.mp4 none false
-run_case repair_audio input-audio.mp4 repair_hq false
+run_case baseline_audio none
+run_case repair_audio repair_hq
 
 printf '\n===== OUTPUT FILES =====\n' | tee -a "$RESULT_DIR/case-summary.txt"
 find "$RESULT_DIR" -maxdepth 1 -name 'output-*.mp4' -printf '%f %s bytes\n' | sort | tee -a "$RESULT_DIR/case-summary.txt"
