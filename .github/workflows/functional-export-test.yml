@@ -1,0 +1,75 @@
+name: Real Subtitle Removal Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  functional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Install analysis dependencies
+        run: |
+          python3 -m pip install --user numpy pillow
+          ffmpeg -version | head -n 1
+      - name: Build functional APK and create controlled videos
+        run: bash ci/functional-prepare.sh
+      - name: Run real Media3 export in Android 10 emulator
+        id: device_export
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: bash ci/functional-emulator.sh
+      - name: Quantitatively compare output with clean source
+        id: analyze
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python3 ci/functional-analyze.py functional-results | tee functional-results/analyzer-console.txt
+          echo $? > functional-results/analyzer-exit.txt
+          exit 0
+      - name: Upload all functional evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.0.3-real-subtitle-removal-test
+          path: |
+            functional-results/
+            functional-gradle.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require actual subtitle-removal success
+        shell: bash
+        run: |
+          grep -q '^PASS' functional-results/device-result.txt
+          test "$(cat functional-results/analyzer-exit.txt)" = "0"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('functional-results/functional-report.json').read_text())
+          assert report['functional_pass'] is True, report
+          print('REAL_FUNCTIONAL_TEST_PASS')
+          PY
