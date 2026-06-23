@@ -32,9 +32,9 @@ jobs:
           python3 -m pip install --user numpy pillow
           command -v ffmpeg
           ffmpeg -version | head -n 1
-      - name: Build functional APK and create controlled videos
+      - name: Build V4.0.4 functional APK and controlled videos
         run: bash ci/functional-prepare.sh
-      - name: Run export compatibility matrix in Android 10 emulator
+      - name: Run clean, subtitle and repair exports in Android 10 emulator
         id: device_export
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
@@ -47,7 +47,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
           script: bash ci/functional-emulator.sh
-      - name: Analyze all outputs against clean source
+      - name: Fairly compare all Android-transcoded outputs
         id: analyze
         continue-on-error: true
         shell: bash
@@ -57,25 +57,25 @@ jobs:
           code=${PIPESTATUS[0]}
           echo "$code" > functional-results/analyzer-exit.txt
           exit 0
-      - name: Upload all functional evidence
+      - name: Upload V4.0.4 functional evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: JingHua-V4.0.3-real-subtitle-removal-matrix
+          name: JingHua-V4.0.4-real-subtitle-removal-test
           path: |
             functional-results/
             functional-gradle.log
             functional-prepare.log
           if-no-files-found: error
           retention-days: 14
-      - name: Require complete real-world export success
+      - name: Require genuine subtitle-removal success
         shell: bash
         run: |
-          test -f functional-results/functional-matrix-report.json
+          test -f functional-results/functional-v404-report.json
           python3 - <<'PY'
           import json
           from pathlib import Path
-          report = json.loads(Path('functional-results/functional-matrix-report.json').read_text())
-          assert report['full_functional_pass'] is True, report['diagnosis']
-          print('REAL_FUNCTIONAL_TEST_PASS')
+          report = json.loads(Path('functional-results/functional-v404-report.json').read_text())
+          assert report['full_functional_pass'] is True, report
+          print('REAL_V404_FUNCTIONAL_TEST_PASS')
           PY
