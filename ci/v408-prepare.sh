@@ -12,6 +12,8 @@ grep -n "versionName '4.0.8'" jhmin/app/build.gradle
 grep -n 'VERSION_NAME = "4.0.8"' jhmin/app/src/main/java/com/bianzhifeng/jinghua/BuildVersion.java
 grep -n '彻底去字（推荐）' jhmin/app/src/main/java/com/bianzhifeng/jinghua/MainActivity.java
 grep -n 'MODE_REPAIR_HQ, 1.0f' jhmin/app/src/main/java/com/bianzhifeng/jinghua/TemplateStore.java
+grep -n 'V4.0.8 complete-erasure shader' jhmin/app/src/main/res/raw/fragment_region_es2.glsl
+grep -n 'vec4 expandRepairPose' jhmin/app/src/main/res/raw/fragment_region_es2.glsl
 
 gradle --no-daemon --stacktrace -p jhmin clean assembleDebug > v408-gradle.log 2>&1
 APK='jhmin/app/build/outputs/apk/debug/app-debug.apk'
@@ -56,13 +58,17 @@ for f in v408-results/fixtures/*.mp4; do
 done
 
 python3 - <<'PY'
-import base64, gzip, hashlib
+import hashlib
 from pathlib import Path
-payload=Path('v408_patch/fragment_region_v408.glsl.gz.b64').read_text().strip()
-shader=gzip.decompress(base64.b64decode(payload))
-installed=Path('jhmin/app/src/main/res/raw/fragment_region_es2.glsl').read_bytes()
-assert installed == shader
-Path('v408-results/shader-sha256.txt').write_text(hashlib.sha256(installed).hexdigest()+'  fragment_region_es2.glsl\n')
+shader_path = Path('jhmin/app/src/main/res/raw/fragment_region_es2.glsl')
+shader = shader_path.read_bytes()
+text = shader.decode('utf-8')
+assert 'V4.0.8 complete-erasure shader' in text
+assert 'vec4 expandRepairPose' in text
+assert 'subtitleInkMask(p, localBackground, strength)' not in text[text.find('vec4 repairRegion('):]
+Path('v408-results/shader-sha256.txt').write_text(
+    hashlib.sha256(shader).hexdigest() + '  fragment_region_es2.glsl\n',
+    encoding='utf-8')
 PY
 
 echo V408_PREPARE_PASS
