@@ -27,7 +27,31 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core
       - name: Rebuild V4.1.0 from complete source
+        continue-on-error: true
         run: bash ci/v410-prepare.sh
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.1.0-build-diagnostics
+          path: |
+            v410-prepare.log
+            v410-gradle.log
+            v407-prepare.log
+            v408-prepare.log
+            v409-prepare.log
+            jhmin/app/src/main/java/com/bianzhifeng/jinghua/MainActivity.java
+            jhmin/app/src/main/java/com/bianzhifeng/jinghua/SelectionOverlayView.java
+            jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java
+            jhmin/app/src/main/java/com/bianzhifeng/jinghua/MediaIntegrityValidator.java
+            jhmin/app/src/main/res/raw/fragment_region_es2.glsl
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Require successful APK build
+        run: |
+          test -s v410-results/apk/JingHua-V4.1.0-release-candidate.apk
+          unzip -t v410-results/apk/JingHua-V4.1.0-release-candidate.apk
+          test -f v410-results/source-assertions.json
       - name: Upload build once for parallel validation
         uses: actions/upload-artifact@v4
         with:
