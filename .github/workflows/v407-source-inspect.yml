@@ -1,4 +1,4 @@
-name: Archived Build JingHua APK
+name: Archived JingHua V4.0.7 Source Inspection
 
 on:
   workflow_dispatch:

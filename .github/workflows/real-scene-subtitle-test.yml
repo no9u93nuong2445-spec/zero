@@ -1,4 +1,4 @@
-name: Archived Build JingHua APK
+name: Archived Real Scene Subtitle Removal Test
 
 on:
   workflow_dispatch:
