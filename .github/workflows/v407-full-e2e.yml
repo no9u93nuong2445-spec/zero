@@ -1,4 +1,4 @@
-name: Archived Build JingHua APK
+name: Archived JingHua V4.0.7 Full Android E2E
 
 on:
   workflow_dispatch:

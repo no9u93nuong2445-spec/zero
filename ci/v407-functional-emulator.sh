@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -u
+mkdir -p functional-results e2e-results
+APK='jhmin/app/build/outputs/apk/debug/app-debug.apk'
+PKG='com.bianzhifeng.jinghua'
+ACT="$PKG/.FunctionalExportActivity"
+DEVICE_DIR="/sdcard/Android/data/$PKG/files/functional-test"
+TMP_CLEAN='/data/local/tmp/jinghua-clean.mp4'
+TMP_INPUT='/data/local/tmp/jinghua-input.mp4'
+
+exec > >(tee functional-results/v407-functional-console.txt) 2>&1
+
+PASS_ALL=1
+adb install -r "$APK" > functional-results/adb-install.txt 2>&1 || PASS_ALL=0
+adb shell pm clear "$PKG" > functional-results/pm-clear.txt 2>&1 || true
+adb logcat -c
+
+# Start the CI activity once so Android creates getExternalFilesDir(). A missing
+# input is expected here and is not treated as a functional result.
+adb shell am start -S -n "$ACT" \
+  --es case_name bootstrap --es input_name missing.mp4 \
+  --es output_name bootstrap.mp4 --es marker_name bootstrap.txt --es mode none \
+  > functional-results/bootstrap-start.txt 2>&1 || true
+sleep 3
+adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+
+# Android 15 restricts direct adb access to Android/data on some images. Stage
+# files in /data/local/tmp, then copy them as the debuggable app UID.
+adb push functional-results/clean-audio.mp4 "$TMP_CLEAN" \
+  > functional-results/adb-push-clean.txt 2>&1 || PASS_ALL=0
+adb push functional-results/input-audio.mp4 "$TMP_INPUT" \
+  > functional-results/adb-push-input.txt 2>&1 || PASS_ALL=0
+adb shell chmod 644 "$TMP_CLEAN" "$TMP_INPUT" >/dev/null 2>&1 || true
+adb shell run-as "$PKG" mkdir -p "$DEVICE_DIR" \
+  > functional-results/run-as-mkdir.txt 2>&1 || PASS_ALL=0
+adb shell run-as "$PKG" cp "$TMP_CLEAN" "$DEVICE_DIR/clean-audio.mp4" \
+  > functional-results/run-as-copy-clean.txt 2>&1 || PASS_ALL=0
+adb shell run-as "$PKG" cp "$TMP_INPUT" "$DEVICE_DIR/input-audio.mp4" \
+  > functional-results/run-as-copy-input.txt 2>&1 || PASS_ALL=0
+
+run_case() {
+  local case_name="$1" input_name="$2" output_name="$3" mode="$4"
+  local marker="result-${case_name}.txt"
+  local device_marker="$DEVICE_DIR/$marker"
+  local device_output="$DEVICE_DIR/$output_name"
+  local start_file="functional-results/start-${case_name}.txt"
+  local marker_file="functional-results/result-${case_name}.txt"
+  local output_file="functional-results/$output_name"
+
+  adb shell run-as "$PKG" rm -f "$device_marker" "$device_output" >/dev/null 2>&1 || true
+  adb logcat -c
+  adb shell am start -S -n "$ACT" \
+    --es case_name "$case_name" \
+    --es input_name "$input_name" \
+    --es output_name "$output_name" \
+    --es marker_name "$marker" \
+    --es mode "$mode" \
+    > "$start_file" 2>&1 || true
+
+  local found=0
+  for _ in $(seq 1 90); do
+    if adb shell run-as "$PKG" test -s "$device_marker" >/dev/null 2>&1; then
+      found=1
+      break
+    fi
+    sleep 1
+  done
+
+  adb exec-out screencap -p > "functional-results/screen-${case_name}.png" 2>/dev/null || true
+  adb logcat -d -v threadtime > "functional-results/logcat-${case_name}.txt" 2>&1 || true
+  if [ "$found" -ne 1 ]; then
+    echo "FAIL marker timeout for $case_name" | tee "$marker_file"
+    return 1
+  fi
+
+  adb exec-out run-as "$PKG" cat "$device_marker" | tr -d '\r' > "$marker_file"
+  cat "$marker_file"
+  if ! grep -q '^PASS' "$marker_file"; then
+    return 1
+  fi
+  adb exec-out run-as "$PKG" cat "$device_output" > "$output_file" || return 1
+  test -s "$output_file" || return 1
+  printf 'run-as cat %s\n' "$device_output" > "functional-results/pull-${case_name}.txt"
+  return 0
+}
+
+run_case clean_reference clean-audio.mp4 output-clean_reference.mp4 none || PASS_ALL=0
+run_case baseline_audio input-audio.mp4 output-baseline_audio.mp4 none || PASS_ALL=0
+run_case repair_audio input-audio.mp4 output-repair_audio.mp4 repair_hq || PASS_ALL=0
+
+{
+  echo "functional_pass=$PASS_ALL"
+  for f in functional-results/result-*.txt; do
+    echo "--- $f"
+    cat "$f"
+  done
+} > functional-results/case-summary.txt
+
+echo "$PASS_ALL" > e2e-results/functional-emulator-pass.txt
+if [ "$PASS_ALL" -eq 1 ]; then
+  echo V407_FUNCTIONAL_EMULATOR_PASS
+  exit 0
+fi
+echo V407_FUNCTIONAL_EMULATOR_FAIL
+exit 1
