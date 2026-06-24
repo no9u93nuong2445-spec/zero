@@ -15,8 +15,6 @@ adb install -r "$APK" > "$RESULT_DIR/install.txt" 2>&1 || PASS=0
 adb shell pm clear "$PKG" > "$RESULT_DIR/clear.txt" 2>&1 || true
 adb logcat -c
 
-# Verify the real launcher, but do not let software-rendered first-frame latency
-# block the functional export tests.
 timeout 25s adb shell am start -W -n "$PKG/.HomeActivity" \
   > "$RESULT_DIR/home-start.txt" 2>&1 || true
 sleep 3
@@ -28,7 +26,7 @@ if ! adb shell pidof "$PKG" | grep -q '[0-9]'; then
 fi
 adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
 
-# Bootstrap the exported test activity once so getExternalFilesDir() exists.
+# Bootstrap once so getExternalFilesDir() is created before fixtures are copied.
 adb shell am start -S -n "$ACT" \
   --es case_name bootstrap --es input_name missing.mp4 \
   --es output_name bootstrap.mp4 --es marker_name bootstrap.txt --es mode none \
@@ -36,8 +34,7 @@ adb shell am start -S -n "$ACT" \
 sleep 3
 adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
 
-# Always stage through /data/local/tmp, then copy as the debuggable application
-# UID. This avoids Android/data shell-access differences across emulator images.
+# Stage every fixture through /data/local/tmp and copy it as the application UID.
 adb shell mkdir -p "$TMP_DIR" >/dev/null 2>&1 || true
 for f in v408-results/fixtures/*.mp4; do
   name="$(basename "$f")"
@@ -69,7 +66,7 @@ run_case() {
     --es mode "$mode" \
     > "$RESULT_DIR/start-${case_name}.txt" 2>&1 || true
 
-  for _ in $(seq 1 75); do
+  for _ in $(seq 1 90); do
     if adb shell run-as "$PKG" test -s "$device_marker" >/dev/null 2>&1; then
       found=1
       break
@@ -94,13 +91,27 @@ run_case() {
   return 0
 }
 
-run_case clean_reference clean.mp4 output-clean.mp4 none || PASS=0
-for style in white-outline yellow-shadow color-outline double-line; do
-  run_case "${style}_baseline" "${style}.mp4" \
-    "output-${style}-baseline.mp4" none || PASS=0
-  run_case "${style}_repair" "${style}.mp4" \
-    "output-${style}-repair.mp4" repair_hq || PASS=0
-done
+# Fail fast: the first broken case is enough to diagnose the real app/export
+# error. Once clean + first subtitle pass, the remaining styles run normally.
+if [ "$PASS" -eq 1 ]; then
+  run_case clean_reference clean.mp4 output-clean.mp4 none || PASS=0
+fi
+if [ "$PASS" -eq 1 ]; then
+  run_case white-outline_baseline white-outline.mp4 \
+    output-white-outline-baseline.mp4 none || PASS=0
+fi
+if [ "$PASS" -eq 1 ]; then
+  run_case white-outline_repair white-outline.mp4 \
+    output-white-outline-repair.mp4 repair_hq || PASS=0
+fi
+if [ "$PASS" -eq 1 ]; then
+  for style in yellow-shadow color-outline double-line; do
+    run_case "${style}_baseline" "${style}.mp4" \
+      "output-${style}-baseline.mp4" none || { PASS=0; break; }
+    run_case "${style}_repair" "${style}.mp4" \
+      "output-${style}-repair.mp4" repair_hq || { PASS=0; break; }
+  done
+fi
 
 adb logcat -d -v threadtime > "$RESULT_DIR/logcat-final.txt" 2>&1 || true
 if grep -E 'FATAL EXCEPTION|AndroidRuntime.*Process: com\.bianzhifeng\.jinghua' \
