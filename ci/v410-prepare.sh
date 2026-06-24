@@ -84,13 +84,15 @@ for path in files:
     path.write_text(source,encoding='utf-8')
 PY
 
-# Apply the complete-erasure engine, simplified product UI, and release hardening.
+# Apply the complete-erasure engine, simplified product UI, release hardening,
+# and the measured one-line/two-line subtitle-band tuning.
 python3 v408_patch/apply_patch.py
 python3 v409_patch/apply_patch.py
 python3 v409_patch/fix_generated_java_strings.py
 python3 v409_patch/add_direct_video_intent.py
 python3 v410_patch/apply_release_patch.py
 python3 v410_patch/harden_functional_activity.py
+python3 v410_patch/tune_subtitle_region.py
 
 # Compile only once at the final version.
 gradle --no-daemon --stacktrace -p jhmin clean assembleDebug > v410-gradle.log 2>&1
@@ -125,6 +127,7 @@ from pathlib import Path
 import json
 main=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/MainActivity.java').read_text(encoding='utf-8')
 overlay=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/SelectionOverlayView.java').read_text(encoding='utf-8')
+functional=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java').read_text(encoding='utf-8')
 shader=Path('jhmin/app/src/main/res/raw/fragment_region_es2.glsl').read_text(encoding='utf-8')
 checks={
  'version_410': "versionName '4.1.0'" in Path('jhmin/app/build.gradle').read_text(encoding='utf-8'),
@@ -136,7 +139,9 @@ checks={
  'large_simple_handles': 'float radius = dp(10);' in overlay and 'float hit = dp(38);' in overlay,
  'no_rotate_handle': 'distanceTo(rotationHandle(pose), x, y) <= hit' not in overlay,
  'expanded_erasure_rim': 'pose.zw * vec2(0.045, 0.25)' in shader,
- 'watchdog_export_test': 'completion_source=' in Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java').read_text(encoding='utf-8'),
+ 'watchdog_export_test': 'completion_source=' in functional,
+ 'tuned_default_region': 'new RectF(0.04f, 0.735f, 0.96f, 0.900f)' in main,
+ 'tuned_test_region': 'new RectF(0.08f, 0.735f, 0.92f, 0.900f)' in functional,
 }
 Path('v410-results/source-assertions.json').write_text(json.dumps(checks,ensure_ascii=False,indent=2),encoding='utf-8')
 assert all(checks.values()), checks
