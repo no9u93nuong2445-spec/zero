@@ -1,0 +1,196 @@
+name: JingHua V4.1.0 Release Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Install build and fixture tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core
+      - name: Rebuild V4.1.0 from complete source
+        run: bash ci/v410-prepare.sh
+      - name: Upload build once for parallel validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.1.0-build
+          path: |
+            v410-results/apk/
+            v410-results/fixtures/
+            v410-results/source-assertions.json
+            v410-prepare.log
+            v410-gradle.log
+          if-no-files-found: error
+          retention-days: 14
+
+  android10-functional:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install analysis tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python3 -m pip install --user numpy pillow
+      - uses: actions/download-artifact@v4
+        with:
+          name: JingHua-V4.1.0-build
+          path: .
+      - name: Run seven production Media3 exports on Android 10
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: timeout 28m bash ci/v410-functional-e2e.sh
+      - name: Analyze full-frame exports and subtitle residuals
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          python3 ci/v410-functional-analyze.py | tee v410-functional/analyzer-console.txt
+          echo ${PIPESTATUS[0]} > v410-functional/analyzer-exit.txt
+          exit 0
+      - name: Upload Android 10 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.1.0-Android10-functional-evidence
+          path: v410-functional/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require Android 10 functional pass
+        run: |
+          python3 - <<'PY'
+          import json
+          report=json.load(open('v410-functional/V410_FUNCTIONAL_REPORT.json',encoding='utf-8'))
+          assert report['full_pass'] is True, report
+          print('V410_ANDROID10_FUNCTIONAL_PASS')
+          PY
+
+  android15-ui:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: JingHua-V4.1.0-build
+          path: .
+      - name: Test simple UI, large Photo Picker and autoplay on Android 15
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: timeout 20m bash ci/v410-ui-smoke.sh
+      - name: Upload Android 15 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.1.0-Android15-UI-evidence
+          path: v410-ui/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require Android 15 UI pass
+        run: |
+          python3 - <<'PY'
+          import json
+          report=json.load(open('v410-ui/V410_UI_REPORT.json',encoding='utf-8'))
+          assert report['full_pass'] is True, report
+          print('V410_ANDROID15_UI_PASS')
+          PY
+
+  package-delivery:
+    needs: [build, android10-functional, android15-ui]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: JingHua-V4.1.0-build
+          path: delivery/build
+      - uses: actions/download-artifact@v4
+        with:
+          name: JingHua-V4.1.0-Android10-functional-evidence
+          path: delivery/android10
+      - uses: actions/download-artifact@v4
+        with:
+          name: JingHua-V4.1.0-Android15-UI-evidence
+          path: delivery/android15
+      - name: Assemble verified delivery
+        run: |
+          set -euo pipefail
+          APK='delivery/build/v410-results/apk/JingHua-V4.1.0-release-candidate.apk'
+          test -s "$APK"
+          cp "$APK" delivery/JingHua-V4.1.0-final.apk
+          cat > delivery/RELEASE_STATUS.md <<'EOF'
+          # 净画 V4.1.0 最终交付
+
+          本交付包仅在以下自动验收全部通过后生成：
+
+          - 完整源码恢复、Gradle 编译、APK ZIP 完整性
+          - Android 10：七次真实 Media3 导出
+          - 完整 360×640 画面、H.264 视频、AAC 音频、4.2 秒时长
+          - 白字黑描边、彩色描边、双行半透明字幕残留检测
+          - Android 15：精简首页、大缩略图 Photo Picker、导入后自动播放、时间轴移动
+          - 无应用崩溃
+
+          黄色框只表示去字幕位置，不能裁剪输出画面。
+          EOF
+          sha256sum delivery/JingHua-V4.1.0-final.apk > delivery/JingHua-V4.1.0-final.apk.sha256
+          (cd delivery && zip -qr ../JingHua-V4.1.0-final-delivery.zip .)
+          sha256sum JingHua-V4.1.0-final-delivery.zip > JingHua-V4.1.0-final-delivery.zip.sha256
+          unzip -t JingHua-V4.1.0-final-delivery.zip
+      - name: Upload final verified delivery
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.1.0-FINAL-DELIVERY
+          path: |
+            delivery/JingHua-V4.1.0-final.apk
+            delivery/JingHua-V4.1.0-final.apk.sha256
+            delivery/RELEASE_STATUS.md
+            JingHua-V4.1.0-final-delivery.zip
+            JingHua-V4.1.0-final-delivery.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
