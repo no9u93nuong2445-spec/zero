@@ -1,102 +1,10 @@
-name: JingHua V4.0.7 Full Android E2E
+name: Archived JingHua V4.0.7 Full Android E2E
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - chatgpt/v407-full-e2e
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
 
 jobs:
-  full-e2e:
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 95
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.4.1'
-
-      - name: Install video and analysis dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core
-          python3 -m pip install --user numpy pillow
-          ffmpeg -version | head -n 1
-
-      - name: Reconstruct full source, apply V4.0.7, build APK and generate fixtures
-        run: bash ci/v407-e2e-prepare.sh
-
-      - name: Run real Media3 exports and standard Home-to-gallery UI flow
-        id: android_e2e
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          emulator-boot-timeout: 900
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
-          script: bash ci/v407-emulator-all.sh
-
-      - name: Analyze functional reference exports
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          python3 ci/functional-analyze.py functional-results \
-            | tee e2e-results/functional-analyzer-console.txt
-          echo ${PIPESTATUS[0]} > e2e-results/functional-analyzer-exit.txt
-          exit 0
-
-      - name: Analyze standard UI output and combine all results
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          python3 ci/v407-e2e-analyze.py | tee e2e-results/v407-e2e-analyzer-console.txt
-          echo ${PIPESTATUS[0]} > e2e-results/v407-e2e-analyzer-exit.txt
-          exit 0
-
-      - name: Upload full V4.0.7 Android evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: JingHua-V4.0.7-full-Android-E2E
-          path: |
-            e2e-results/
-            functional-results/
-            v407-prepare.log
-            v407-gradle.log
-            v407-shader-sha256.txt
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Require full end-to-end success
-        shell: bash
-        run: |
-          test -f e2e-results/V407_FULL_E2E_REPORT.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          report = json.loads(Path('e2e-results/V407_FULL_E2E_REPORT.json').read_text())
-          assert report['full_e2e_pass'] is True, report
-          print('JINGHUA_V407_FULL_E2E_PASS')
-          PY
+      - run: echo 'Archived on the V4.0.8 test branch; use the dedicated V4.0.8 workflow.'
