@@ -5,6 +5,8 @@ APK='jhmin/app/build/outputs/apk/debug/app-debug.apk'
 PKG='com.bianzhifeng.jinghua'
 ACT="$PKG/.FunctionalExportActivity"
 DEVICE_DIR="/sdcard/Android/data/$PKG/files/functional-test"
+TMP_CLEAN='/data/local/tmp/jinghua-clean.mp4'
+TMP_INPUT='/data/local/tmp/jinghua-input.mp4'
 
 exec > >(tee functional-results/v407-functional-console.txt) 2>&1
 
@@ -13,16 +15,28 @@ adb install -r "$APK" > functional-results/adb-install.txt 2>&1 || PASS_ALL=0
 adb shell pm clear "$PKG" > functional-results/pm-clear.txt 2>&1 || true
 adb logcat -c
 
-# Do not treat Android 15's `am start -W` timeout as an app failure. The process may
-# be alive while its first UI frame is still being produced under software rendering.
-timeout 30s adb shell am start -W -n "$PKG/.HomeActivity" \
-  > functional-results/home-warmup.txt 2>&1 || true
+# Start the CI activity once so Android creates getExternalFilesDir(). A missing
+# input is expected here and is not treated as a functional result.
+adb shell am start -S -n "$ACT" \
+  --es case_name bootstrap --es input_name missing.mp4 \
+  --es output_name bootstrap.mp4 --es marker_name bootstrap.txt --es mode none \
+  > functional-results/bootstrap-start.txt 2>&1 || true
 sleep 3
-adb shell mkdir -p "$DEVICE_DIR" > functional-results/mkdir.txt 2>&1 || true
-adb push functional-results/clean-audio.mp4 "$DEVICE_DIR/clean-audio.mp4" \
+adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+
+# Android 15 restricts direct adb access to Android/data on some images. Stage
+# files in /data/local/tmp, then copy them as the debuggable app UID.
+adb push functional-results/clean-audio.mp4 "$TMP_CLEAN" \
   > functional-results/adb-push-clean.txt 2>&1 || PASS_ALL=0
-adb push functional-results/input-audio.mp4 "$DEVICE_DIR/input-audio.mp4" \
+adb push functional-results/input-audio.mp4 "$TMP_INPUT" \
   > functional-results/adb-push-input.txt 2>&1 || PASS_ALL=0
+adb shell chmod 644 "$TMP_CLEAN" "$TMP_INPUT" >/dev/null 2>&1 || true
+adb shell run-as "$PKG" mkdir -p "$DEVICE_DIR" \
+  > functional-results/run-as-mkdir.txt 2>&1 || PASS_ALL=0
+adb shell run-as "$PKG" cp "$TMP_CLEAN" "$DEVICE_DIR/clean-audio.mp4" \
+  > functional-results/run-as-copy-clean.txt 2>&1 || PASS_ALL=0
+adb shell run-as "$PKG" cp "$TMP_INPUT" "$DEVICE_DIR/input-audio.mp4" \
+  > functional-results/run-as-copy-input.txt 2>&1 || PASS_ALL=0
 
 run_case() {
   local case_name="$1" input_name="$2" output_name="$3" mode="$4"
@@ -33,9 +47,9 @@ run_case() {
   local marker_file="functional-results/result-${case_name}.txt"
   local output_file="functional-results/$output_name"
 
-  adb shell rm -f "$device_marker" "$device_output" >/dev/null 2>&1 || true
+  adb shell run-as "$PKG" rm -f "$device_marker" "$device_output" >/dev/null 2>&1 || true
   adb logcat -c
-  timeout 35s adb shell am start -W -S -n "$ACT" \
+  adb shell am start -S -n "$ACT" \
     --es case_name "$case_name" \
     --es input_name "$input_name" \
     --es output_name "$output_name" \
@@ -44,12 +58,12 @@ run_case() {
     > "$start_file" 2>&1 || true
 
   local found=0
-  for _ in $(seq 1 150); do
-    if adb shell test -s "$device_marker" >/dev/null 2>&1; then
+  for _ in $(seq 1 90); do
+    if adb shell run-as "$PKG" test -s "$device_marker" >/dev/null 2>&1; then
       found=1
       break
     fi
-    sleep 2
+    sleep 1
   done
 
   adb exec-out screencap -p > "functional-results/screen-${case_name}.png" 2>/dev/null || true
@@ -59,14 +73,14 @@ run_case() {
     return 1
   fi
 
-  adb shell cat "$device_marker" | tr -d '\r' > "$marker_file"
+  adb exec-out run-as "$PKG" cat "$device_marker" | tr -d '\r' > "$marker_file"
   cat "$marker_file"
   if ! grep -q '^PASS' "$marker_file"; then
     return 1
   fi
-  adb pull "$device_output" "$output_file" \
-    > "functional-results/pull-${case_name}.txt" 2>&1 || return 1
+  adb exec-out run-as "$PKG" cat "$device_output" > "$output_file" || return 1
   test -s "$output_file" || return 1
+  printf 'run-as cat %s\n' "$device_output" > "functional-results/pull-${case_name}.txt"
   return 0
 }
 
