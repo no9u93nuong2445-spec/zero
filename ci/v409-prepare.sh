@@ -7,6 +7,7 @@ bash ci/v408-prepare.sh
 
 # Layer the user-facing simplification, autoplay, large picker and full-frame fixes.
 python3 v409_patch/apply_patch.py
+python3 v409_patch/fix_generated_java_strings.py
 python3 v409_patch/add_direct_video_intent.py
 
 grep -n "versionCode 15" jhmin/app/build.gradle
