@@ -19,7 +19,8 @@ def probe(path: Path) -> dict:
         return {'missing': True, 'path': str(path)}
     return json.loads(subprocess.check_output([
         'ffprobe', '-v', 'error',
-        '-show_entries', 'stream=codec_name,codec_type,width,height:format=duration,size',
+        '-show_entries',
+        'stream=codec_name,codec_type,width,height:stream_tags=rotate:stream_side_data=rotation:format=duration,size',
         '-of', 'json', str(path),
     ], text=True))
 
@@ -31,14 +32,35 @@ def stream(path: Path) -> dict:
     streams = raw.get('streams', [])
     video = next((item for item in streams if item.get('codec_type') == 'video'), None)
     audio = next((item for item in streams if item.get('codec_type') == 'audio'), None)
+    coded_width = None if video is None else int(video.get('width') or 0)
+    coded_height = None if video is None else int(video.get('height') or 0)
+    rotation = 0
+    if video is not None:
+        try:
+            rotation = int(float(video.get('tags', {}).get('rotate', 0) or 0))
+        except (TypeError, ValueError):
+            rotation = 0
+        for side_data in video.get('side_data_list', []) or []:
+            if 'rotation' in side_data:
+                try:
+                    rotation = int(float(side_data.get('rotation', 0) or 0))
+                except (TypeError, ValueError):
+                    pass
+                break
+    visible_width, visible_height = coded_width, coded_height
+    if video is not None and abs(rotation) % 180 == 90:
+        visible_width, visible_height = coded_height, coded_width
     return {
         'path': str(path),
         'has_video': video is not None,
         'has_audio': audio is not None,
         'video_codec': None if video is None else video.get('codec_name'),
         'audio_codec': None if audio is None else audio.get('codec_name'),
-        'width': None if video is None else video.get('width'),
-        'height': None if video is None else video.get('height'),
+        'coded_width': coded_width,
+        'coded_height': coded_height,
+        'rotation_degrees': rotation,
+        'visible_width': visible_width,
+        'visible_height': visible_height,
         'duration_s': float(raw.get('format', {}).get('duration', 0) or 0),
         'size_bytes': int(raw.get('format', {}).get('size', 0) or 0),
     }
@@ -46,6 +68,8 @@ def stream(path: Path) -> dict:
 
 def frame(path: Path, time_s: float, name: str) -> np.ndarray:
     output = EVIDENCE / f'{name}-{time_s:.1f}.png'
+    # ffmpeg applies display rotation by default, so all compared frames are in
+    # the actual visible portrait orientation rather than coded-buffer order.
     subprocess.run([
         'ffmpeg', '-y', '-v', 'error', '-ss', str(time_s), '-i', str(path),
         '-frames:v', '1', '-vf', 'scale=360:640:flags=bilinear', str(output),
@@ -71,7 +95,7 @@ def valid_stream(info: dict) -> bool:
         and info.get('has_video') and info.get('has_audio')
         and info.get('video_codec') == 'h264'
         and info.get('audio_codec') == 'aac'
-        and info.get('width') == 360 and info.get('height') == 640
+        and info.get('visible_width') == 360 and info.get('visible_height') == 640
         and abs(info.get('duration_s', 0) - 4.2) < 0.20
         and info.get('size_bytes', 0) > 10000
     )
@@ -180,6 +204,7 @@ report = {
         'average_strong_glyph_retention_max': 0.03,
         'average_outside_change_mae_max': 3.0,
     },
+    'dimension_rule': 'Visible dimensions after applying rotation metadata must remain 360x640.',
 }
 (ROOT / 'V410_FUNCTIONAL_REPORT.json').write_text(
     json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -188,7 +213,7 @@ lines = [
     '# 净画 V4.1.0 Android 真导出测试', '',
     f"- 最终：**{'通过' if full_pass else '失败'}**",
     f"- 七次 Media3 导出：{'通过' if emulator_pass and markers_pass else '失败'}",
-    f"- 完整画面、H.264、AAC、时长：{'通过' if clean_stream_pass else '失败'}", '',
+    f"- 完整可见画面、H.264、AAC、时长：{'通过' if clean_stream_pass else '失败'}", '',
     '| 字幕类型 | 判定 | 字幕像素改善 | 原字形强残留 | 选区外变化 |',
     '|---|---:|---:|---:|---:|',
 ]
