@@ -1,57 +1,10 @@
-name: Android 10 Smoke Test
+name: Archived Android 10 Smoke Test
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
 
 jobs:
-  smoke:
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.4.1'
-      - name: Build V4.0.3 before starting emulator
-        run: bash ci/android29-smoke.sh build
-      - name: Android 10 launcher and editor verification
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 29
-          target: default
-          arch: x86_64
-          profile: pixel_2
-          emulator-boot-timeout: 600
-          disable-animations: true
-          script: bash ci/android29-smoke.sh test
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: JingHua-V4.0.3-Android10-diagnostics
-          path: |
-            smoke-*.txt
-            smoke-*.png
-            smoke-*.xml
-            gradle-api29.log
-            apk-api29-sha256.txt
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Upload tested APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: JingHua-V4.0.3-tested-apk
-          path: jhmin/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
+      - run: echo 'Archived on the V4.0.8 test branch; use the dedicated V4.0.8 workflow.'
