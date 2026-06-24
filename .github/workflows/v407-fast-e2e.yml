@@ -1,0 +1,83 @@
+name: JingHua V4.0.7 Fast Android E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  android10-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Install analysis tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core
+          python3 -m pip install --user numpy pillow
+      - name: Rebuild V4.0.7 from complete source
+        run: bash ci/v407-e2e-prepare.sh
+      - name: Run bounded Android 10 functional and standard UI flows
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: |
+            set +e
+            bash ci/v407-functional-emulator.sh
+            echo $? > e2e-fast-results/functional-exit.txt
+            bash ci/v407-ui-e2e-fast.sh
+            echo $? > e2e-fast-results/ui-exit.txt
+            exit 0
+      - name: Analyze functional exports
+        if: always()
+        run: |
+          set +e
+          python3 ci/functional-analyze.py functional-results | tee e2e-fast-results/functional-analyzer.txt
+          exit 0
+      - name: Analyze complete user flow
+        if: always()
+        run: |
+          set +e
+          python3 ci/v407-fast-analyze.py | tee e2e-fast-results/final-analyzer.txt
+          exit 0
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.0.7-Android10-full-flow
+          path: |
+            e2e-fast-results/
+            e2e-results/JingHua-V4.0.7-full-source-debug.apk
+            e2e-results/apk-sha256.txt
+            functional-results/
+            v407-gradle.log
+            v407-prepare.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require pass
+        run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open('e2e-fast-results/V407_FAST_E2E_REPORT.json'))
+          assert r['full_pass'] is True, r
+          print('JINGHUA_V407_ANDROID10_FULL_FLOW_PASS')
+          PY
