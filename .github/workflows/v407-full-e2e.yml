@@ -54,13 +54,7 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
-          script: |
-            set +e
-            bash ci/functional-emulator.sh
-            echo $? > e2e-results/functional-emulator-exit.txt
-            bash ci/v407-ui-e2e.sh
-            echo $? > e2e-results/ui-emulator-exit.txt
-            exit 0
+          script: bash ci/v407-emulator-all.sh
 
       - name: Analyze functional reference exports
         if: always()
