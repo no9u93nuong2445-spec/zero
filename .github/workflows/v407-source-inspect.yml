@@ -1,0 +1,47 @@
+name: JingHua V4.0.7 Source Inspection
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Install fixture tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core
+      - name: Reconstruct full source
+        run: bash ci/v407-e2e-prepare.sh
+      - name: Collect relevant source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-inspect/java source-inspect/res source-inspect/root
+          cp jhmin/app/src/main/java/com/bianzhifeng/jinghua/*.java source-inspect/java/
+          cp jhmin/app/src/main/res/raw/fragment_region_es2.glsl source-inspect/res/
+          cp jhmin/app/src/main/res/raw/vertex_region_es2.glsl source-inspect/res/
+          cp jhmin/app/src/main/AndroidManifest.xml source-inspect/root/
+          cp jhmin/app/build.gradle source-inspect/root/app-build.gradle
+          find source-inspect -type f -maxdepth 3 -print | sort > source-inspect/FILES.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.0.7-relevant-source
+          path: source-inspect/
+          if-no-files-found: error
+          retention-days: 14
