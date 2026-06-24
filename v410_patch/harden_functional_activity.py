@@ -4,8 +4,31 @@ from pathlib import Path
 path = Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java')
 text = path.read_text(encoding='utf-8')
 
-text = text.replace('import android.os.Bundle;\n', 'import android.os.Bundle;\nimport android.os.Handler;\nimport android.os.Looper;\n', 1)
-text = text.replace('import java.util.List;\n', 'import java.util.List;\nimport java.util.concurrent.atomic.AtomicBoolean;\n', 1)
+
+def method_bounds(source: str, signature: str) -> tuple[int, int]:
+    start = source.index(signature)
+    brace = source.index('{', start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == '{':
+            depth += 1
+        elif source[index] == '}':
+            depth -= 1
+            if depth == 0:
+                return start, index + 1
+    raise RuntimeError(f'unclosed method: {signature}')
+
+
+text = text.replace(
+    'import android.os.Bundle;\n',
+    'import android.os.Bundle;\nimport android.os.Handler;\nimport android.os.Looper;\n',
+    1,
+)
+text = text.replace(
+    'import java.util.List;\n',
+    'import java.util.List;\nimport java.util.concurrent.atomic.AtomicBoolean;\n',
+    1,
+)
 
 field_anchor = '''    private File markerFile;
     private File outputFile;
@@ -46,51 +69,53 @@ if text.count(field_anchor) != 1:
     raise RuntimeError('functional fields anchor missing')
 text = text.replace(field_anchor, field_replacement, 1)
 
-text = text.replace('''        String modeName = intent.getStringExtra("mode");
+assignments = [
+    (
+        '''        String modeName = intent.getStringExtra("mode");
         boolean removeAudio = intent.getBooleanExtra("remove_audio", false);''',
-'''        modeName = intent.getStringExtra("mode");
-        removeAudio = intent.getBooleanExtra("remove_audio", false);''', 1)
-text = text.replace('''        File input = new File(testDir, inputName);
+        '''        modeName = intent.getStringExtra("mode");
+        removeAudio = intent.getBooleanExtra("remove_audio", false);''',
+    ),
+    (
+        '''        File input = new File(testDir, inputName);
         outputFile = new File(testDir, outputName);''',
-'''        inputFile = new File(testDir, inputName);
-        outputFile = new File(testDir, outputName);''', 1)
-text = text.replace('if (!input.isFile() || input.length() < 1024L) {',
-                    'if (!inputFile.isFile() || inputFile.length() < 1024L) {', 1)
-text = text.replace('"input_missing_or_too_small:" + input.getAbsolutePath()',
-                    '"input_missing_or_too_small:" + inputFile.getAbsolutePath()', 1)
-text = text.replace('detectedRegion = detectSubtitleRegion(input);',
-                    'detectedRegion = detectSubtitleRegion(inputFile);', 1)
-text = text.replace('new MediaItem.Builder().setUri(Uri.fromFile(input)).build()',
-                    'new MediaItem.Builder().setUri(Uri.fromFile(inputFile)).build()', 1)
+        '''        inputFile = new File(testDir, inputName);
+        outputFile = new File(testDir, outputName);''',
+    ),
+    ('if (!input.isFile() || input.length() < 1024L) {',
+     'if (!inputFile.isFile() || inputFile.length() < 1024L) {'),
+    ('"input_missing_or_too_small:" + input.getAbsolutePath()',
+     '"input_missing_or_too_small:" + inputFile.getAbsolutePath()'),
+    ('detectedRegion = detectSubtitleRegion(input);',
+     'detectedRegion = detectSubtitleRegion(inputFile);'),
+    ('new MediaItem.Builder().setUri(Uri.fromFile(input)).build()',
+     'new MediaItem.Builder().setUri(Uri.fromFile(inputFile)).build()'),
+]
+for old, new in assignments:
+    if text.count(old) != 1:
+        raise RuntimeError(f'functional assignment anchor missing: {old[:80]!r}')
+    text = text.replace(old, new, 1)
 
-callback_old = '''                    public void onCompleted(Composition composition, ExportResult exportResult) {
-                        if (!outputFile.isFile() || outputFile.length() < 1024L) {
-                            finishWithError("completed_but_output_invalid", null);
-                            return;
-                        }
-                        String result = "PASS\ncase=" + caseName
-                                + "\nbytes=" + outputFile.length()
-                                + "\naudio_removed=" + removeAudio
-                                + "\nmode=" + String.valueOf(modeName)
-                                + "\nregion=" + regionText(detectedRegion);
-                        writeMarker(result);
-                        statusView.setText("PASS " + caseName + ": " + outputFile.length() + " bytes");
-                    }'''
-callback_new = '''                    public void onCompleted(Composition composition, ExportResult exportResult) {
+# Replace onCompleted by method boundary instead of brittle whole-block text matching.
+start, end = method_bounds(
+    text,
+    '                    public void onCompleted(Composition composition, ExportResult exportResult)',
+)
+text = text[:start] + '''                    public void onCompleted(Composition composition, ExportResult exportResult) {
                         finishSuccess("callback");
-                    }'''
-if text.count(callback_old) != 1:
-    raise RuntimeError('functional onCompleted block missing')
-text = text.replace(callback_old, callback_new, 1)
+                    }''' + text[end:]
 
-text = text.replace('''            transformer.start(edited, outputFile.getAbsolutePath());
-        } catch (Throwable error) {''',
-'''            transformer.start(edited, outputFile.getAbsolutePath());
+start_anchor = '''            transformer.start(edited, outputFile.getAbsolutePath());
+        } catch (Throwable error) {'''
+start_replacement = '''            transformer.start(edited, outputFile.getAbsolutePath());
             watchdogHandler.postDelayed(outputWatchdog, 1000L);
-        } catch (Throwable error) {''', 1)
+        } catch (Throwable error) {'''
+if text.count(start_anchor) != 1:
+    raise RuntimeError('transformer start anchor missing')
+text = text.replace(start_anchor, start_replacement, 1)
 
 finish_anchor = '    private void finishWithError(String message, Throwable error) {'
-finish_success = '''    private void finishSuccess(String source) {
+finish_success = r'''    private void finishSuccess(String source) {
         if (!finished.compareAndSet(false, true)) return;
         watchdogHandler.removeCallbacks(outputWatchdog);
         if (!outputFile.isFile() || outputFile.length() < 4096L) {
@@ -121,19 +146,28 @@ finish_success = '''    private void finishSuccess(String source) {
 if text.count(finish_anchor) != 1:
     raise RuntimeError('finishWithError anchor missing')
 text = text.replace(finish_anchor, finish_success + finish_anchor, 1)
-text = text.replace('''    private void finishWithError(String message, Throwable error) {
-        StringBuilder detail = new StringBuilder();''',
-'''    private void finishWithError(String message, Throwable error) {
+
+error_anchor = '''    private void finishWithError(String message, Throwable error) {
+        StringBuilder detail = new StringBuilder();'''
+error_replacement = '''    private void finishWithError(String message, Throwable error) {
         if (!finished.compareAndSet(false, true)) return;
         watchdogHandler.removeCallbacks(outputWatchdog);
-        StringBuilder detail = new StringBuilder();''', 1)
-text = text.replace('''    protected void onDestroy() {
-        if (transformer != null) {''',
-'''    protected void onDestroy() {
+        StringBuilder detail = new StringBuilder();'''
+if text.count(error_anchor) != 1:
+    raise RuntimeError('finishWithError body anchor missing')
+text = text.replace(error_anchor, error_replacement, 1)
+
+destroy_anchor = '''    protected void onDestroy() {
+        if (transformer != null) {'''
+destroy_replacement = '''    protected void onDestroy() {
         watchdogHandler.removeCallbacks(outputWatchdog);
-        if (transformer != null) {''', 1)
+        if (transformer != null) {'''
+if text.count(destroy_anchor) != 1:
+    raise RuntimeError('onDestroy anchor missing')
+text = text.replace(destroy_anchor, destroy_replacement, 1)
 
 path.write_text(text, encoding='utf-8')
+assert 'String result = "PASS\\ncase="' in text
 assert 'completion_source=' in text
 assert 'MediaIntegrityValidator.validate' in text
 assert 'outputWatchdog' in text
