@@ -35,6 +35,17 @@ jobs:
       - name: Rebuild V4.0.9 from complete source
         run: bash ci/v409-prepare.sh
 
+      - name: Upload installable APK immediately
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.0.9-APK
+          path: |
+            v409-results/apk/JingHua-V4.0.9-simple-debug.apk
+            v409-results/apk/JingHua-V4.0.9-SHA256.txt
+            v409-results/source-assertions.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Test simple UI, picker, autoplay and full-frame export on Android 15
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
