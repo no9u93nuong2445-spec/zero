@@ -29,10 +29,29 @@ for src in v410-results/fixtures/*.mp4; do
   tmp="$TMP_DIR/$name"
   adb push "$src" "$tmp" > "$OUT/push-$name.txt" 2>&1 || PASS=0
   adb shell chmod 644 "$tmp" >/dev/null 2>&1 || true
-  adb shell run-as "$PKG" mkdir -p "$DEVICE_DIR" >/dev/null 2>&1 || PASS=0
-  adb shell run-as "$PKG" cp "$tmp" "$DEVICE_DIR/$name" \
-    > "$OUT/copy-$name.txt" 2>&1 || PASS=0
+  # API 29 normally permits direct shell access to app-specific external files.
+  # Keep run-as as a fallback for emulator images with stricter mounts.
+  adb shell mkdir -p "$DEVICE_DIR" >/dev/null 2>&1 || true
+  if ! adb shell cp "$tmp" "$DEVICE_DIR/$name" > "$OUT/copy-$name.txt" 2>&1; then
+    adb shell run-as "$PKG" mkdir -p "$DEVICE_DIR" >/dev/null 2>&1 || PASS=0
+    adb shell run-as "$PKG" cp "$tmp" "$DEVICE_DIR/$name" \
+      >> "$OUT/copy-$name.txt" 2>&1 || PASS=0
+  fi
 done
+
+marker_exists() {
+  local path="$1"
+  adb shell test -s "$path" >/dev/null 2>&1 \
+    || adb shell run-as "$PKG" test -s "$path" >/dev/null 2>&1
+}
+
+copy_device_file() {
+  local remote="$1" local_file="$2"
+  if adb pull "$remote" "$local_file" >/dev/null 2>&1; then
+    return 0
+  fi
+  adb exec-out run-as "$PKG" cat "$remote" > "$local_file" 2>/dev/null
+}
 
 run_case() {
   local case_name="$1" input_name="$2" output_name="$3" mode="$4"
@@ -41,6 +60,7 @@ run_case() {
   local device_output="$DEVICE_DIR/$output_name"
   local found=0
 
+  adb shell rm -f "$device_marker" "$device_output" >/dev/null 2>&1 || true
   adb shell run-as "$PKG" rm -f "$device_marker" "$device_output" >/dev/null 2>&1 || true
   adb logcat -c
   adb shell am start -S -n "$ACT" \
@@ -53,7 +73,7 @@ run_case() {
     > "$OUT/start-${case_name}.txt" 2>&1 || true
 
   for _ in $(seq 1 120); do
-    if adb shell run-as "$PKG" test -s "$device_marker" >/dev/null 2>&1; then
+    if marker_exists "$device_marker"; then
       found=1
       break
     fi
@@ -62,16 +82,18 @@ run_case() {
 
   adb logcat -d -v threadtime > "$OUT/logcat-${case_name}.txt" 2>&1 || true
   adb exec-out screencap -p > "$OUT/screen-${case_name}.png" 2>/dev/null || true
+  adb shell ls -l "$DEVICE_DIR" > "$OUT/device-files-${case_name}.txt" 2>&1 || true
   if [ "$found" -ne 1 ]; then
     echo "FAIL marker timeout" | tee "$OUT/result-${case_name}.txt"
     return 1
   fi
 
-  adb exec-out run-as "$PKG" cat "$device_marker" | tr -d '\r' \
-    > "$OUT/result-${case_name}.txt"
+  copy_device_file "$device_marker" "$OUT/result-${case_name}.txt" || return 1
+  tr -d '\r' < "$OUT/result-${case_name}.txt" > "$OUT/result-${case_name}.tmp"
+  mv "$OUT/result-${case_name}.tmp" "$OUT/result-${case_name}.txt"
   cat "$OUT/result-${case_name}.txt"
   grep -q '^PASS' "$OUT/result-${case_name}.txt" || return 1
-  adb exec-out run-as "$PKG" cat "$device_output" > "$OUT/$output_name" || return 1
+  copy_device_file "$device_output" "$OUT/$output_name" || return 1
   test -s "$OUT/$output_name" || return 1
   return 0
 }
