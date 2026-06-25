@@ -62,9 +62,10 @@ replace_once(
         page.setPadding(dp(18), dp(18), dp(18), dp(34));''',
 )
 
-# A tiny MP4 is generated into res/raw before compilation. This debug-only route
-# exercises the real MainActivity/VideoView/metadata path without relying on an
-# external media volume that is missing from some API-35 CI images.
+# A tiny MP4 is generated into res/raw before compilation. This route is enabled
+# only when Android marks the installed package debuggable; release builds ignore
+# the hidden smoke-test extra even though this old project does not generate a
+# BuildConfig class.
 old_flow = '''            String requestedProject = getIntent().getStringExtra(EXTRA_PROJECT_ID);
             boolean pickOnStart = getIntent().getBooleanExtra(EXTRA_PICK_ON_START, false);
             if (requestedProject != null && !requestedProject.isEmpty()) {
@@ -76,7 +77,9 @@ old_flow = '''            String requestedProject = getIntent().getStringExtra(E
             }'''
 new_flow = '''            String requestedProject = getIntent().getStringExtra(EXTRA_PROJECT_ID);
             boolean pickOnStart = getIntent().getBooleanExtra(EXTRA_PICK_ON_START, false);
-            boolean uiSmoke = BuildConfig.DEBUG
+            boolean debuggable = (getApplicationInfo().flags
+                    & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+            boolean uiSmoke = debuggable
                     && getIntent().getBooleanExtra("jinghua_ui_smoke", false);
             if (uiSmoke) {
                 Uri smokeUri = Uri.parse(
@@ -97,6 +100,8 @@ assert 'firstResume = true' in home_text
 assert 'HOME_SIMPLE_READY' in home_text
 assert 'PICKER_REQUESTED' in main_text
 assert 'EDITOR_SIMPLE_READY' in main_text
+assert 'FLAG_DEBUGGABLE' in main_text
 assert 'jinghua_ui_smoke' in main_text
 assert 'android.resource://' in main_text
+assert 'BuildConfig.DEBUG' not in main_text
 print('V410_ANDROID15_RUNTIME_HARDENING_APPLIED')
