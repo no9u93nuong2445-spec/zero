@@ -85,7 +85,7 @@ for path in files:
 PY
 
 # Apply the complete-erasure engine, simplified product UI, release hardening,
-# and the measured one-line/two-line subtitle-band tuning.
+# measured one-line/two-line tuning, and Android 15 runtime optimization.
 python3 v408_patch/apply_patch.py
 python3 v409_patch/apply_patch.py
 python3 v409_patch/fix_generated_java_strings.py
@@ -93,6 +93,19 @@ python3 v409_patch/add_direct_video_intent.py
 python3 v410_patch/apply_release_patch.py
 python3 v410_patch/harden_functional_activity.py
 python3 v410_patch/tune_subtitle_region.py
+python3 v410_patch/android15_runtime_hardening.py
+
+# Package a tiny deterministic debug-only MP4. Android 15 UI validation loads
+# this through android.resource:// so it does not depend on emulator /sdcard.
+SMOKE_VIDEO='jhmin/app/src/main/res/raw/v410_ui_smoke.mp4'
+mkdir -p "$(dirname "$SMOKE_VIDEO")"
+ffmpeg -y -v error \
+  -f lavfi -i 'testsrc2=size=180x320:rate=15:duration=2.4' \
+  -f lavfi -i 'sine=frequency=660:sample_rate=44100:duration=2.4' \
+  -c:v libx264 -profile:v baseline -level 3.0 -preset veryfast -crf 20 \
+  -pix_fmt yuv420p -c:a aac -b:a 64k -shortest -movflags +faststart \
+  "$SMOKE_VIDEO"
+test -s "$SMOKE_VIDEO"
 
 # Compile only once at the final version.
 gradle --no-daemon --stacktrace -p jhmin clean assembleDebug > v410-gradle.log 2>&1
@@ -126,12 +139,14 @@ python3 - <<'PY'
 from pathlib import Path
 import json
 main=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/MainActivity.java').read_text(encoding='utf-8')
+home=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/HomeActivity.java').read_text(encoding='utf-8')
 overlay=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/SelectionOverlayView.java').read_text(encoding='utf-8')
 functional=Path('jhmin/app/src/main/java/com/bianzhifeng/jinghua/FunctionalExportActivity.java').read_text(encoding='utf-8')
 shader=Path('jhmin/app/src/main/res/raw/fragment_region_es2.glsl').read_text(encoding='utf-8')
 checks={
  'version_410': "versionName '4.1.0'" in Path('jhmin/app/build.gradle').read_text(encoding='utf-8'),
  'simple_ui': '3. 导出完整去字幕视频' in main and 'page.removeAllViews();' in main,
+ 'simple_home': '选择视频开始去字幕' in home and '快速模板' not in home[home.index('private View buildContent()'):home.index('private void showRecovery')],
  'picker_fallback': 'ActivityNotFoundException' in main and 'ACTION_OPEN_DOCUMENT' in main,
  'autoplay_retry': '850L' in main and 'videoView.setKeepScreenOn(true)' in main,
  'full_frame_locked': 'exportSelectedTargetShortSide = -1;' in main and 'int targetShortSide = -1;' in main,
@@ -142,6 +157,10 @@ checks={
  'watchdog_export_test': 'completion_source=' in functional,
  'tuned_default_region': 'new RectF(0.04f, 0.735f, 0.96f, 0.900f)' in main,
  'tuned_test_region': 'new RectF(0.08f, 0.735f, 0.92f, 0.900f)' in functional,
+ 'android15_startup_optimized': 'firstResume = true' in home and 'HOME_SIMPLE_READY' in home,
+ 'android15_runtime_signals': 'PICKER_REQUESTED' in main and 'EDITOR_SIMPLE_READY' in main,
+ 'packaged_smoke_video': Path('jhmin/app/src/main/res/raw/v410_ui_smoke.mp4').stat().st_size > 10000,
+ 'packaged_smoke_route': 'jinghua_ui_smoke' in main and 'android.resource://' in main,
 }
 Path('v410-results/source-assertions.json').write_text(json.dumps(checks,ensure_ascii=False,indent=2),encoding='utf-8')
 assert all(checks.values()), checks
