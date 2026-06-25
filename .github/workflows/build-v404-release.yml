@@ -1,4 +1,4 @@
-name: Archived Build JingHua APK
+name: Archived Build JingHua V4.0.4
 
 on:
   workflow_dispatch:
