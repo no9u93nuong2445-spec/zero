@@ -7,7 +7,7 @@ on:
       - '.github/workflows/ai-video-hub-v2.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: windows-2022
@@ -52,3 +52,20 @@ jobs:
             AI-Video-Hub-v2.0-Windows-x64.zip
             AI-Video-Hub-v2.0-Windows-x64.zip.sha256
           if-no-files-found: error
+      - name: Record build run id
+        shell: pwsh
+        run: |
+          $sha = (Get-FileHash AI-Video-Hub-v2.0-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $obj = [ordered]@{
+            run_id = '${{ github.run_id }}'
+            run_attempt = '${{ github.run_attempt }}'
+            commit = '${{ github.sha }}'
+            artifact_name = 'AI-Video-Hub-v2.0-Windows-x64'
+            zip_sha256 = $sha
+          }
+          $obj | ConvertTo-Json | Out-File ai-video-hub-v2/build-result.json -Encoding utf8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ai-video-hub-v2/build-result.json
+          git commit -m '[skip ci] Record AI Video Hub V2 Windows build result'
+          git push origin HEAD:ai-video-hub-v2-build
