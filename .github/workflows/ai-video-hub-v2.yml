@@ -1,0 +1,54 @@
+name: AI Video Hub V2 Windows Build
+on:
+  push:
+    branches: [ ai-video-hub-v2-build ]
+    paths:
+      - 'ai-video-hub-v2/**'
+      - '.github/workflows/ai-video-hub-v2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Decode source bundle
+        shell: pwsh
+        run: |
+          $b64 = Get-Content 'ai-video-hub-v2/source.zip.b64' -Raw
+          [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
+          Expand-Archive source.zip -DestinationPath src -Force
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore src/AI-Video-Hub-v2.0/AI.VideoHub.csproj
+      - name: Build
+        shell: pwsh
+        run: dotnet build src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -c Release --no-restore
+      - name: Publish self-contained Windows x64
+        shell: pwsh
+        run: dotnet publish src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v2.0
+      - name: Smoke checks
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'dist/AI-Video-Hub-v2.0/AI.VideoHub.exe')) { throw 'AI.VideoHub.exe missing' }
+          if (!(Test-Path 'dist/AI-Video-Hub-v2.0/Microsoft.Web.WebView2.Core.dll')) { throw 'WebView2 Core missing' }
+          if (!(Test-Path 'dist/AI-Video-Hub-v2.0/Scripts/capture.js')) { throw 'capture.js missing' }
+          Get-ChildItem dist/AI-Video-Hub-v2.0 | Select Name,Length | Format-Table
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item src/AI-Video-Hub-v2.0/README.md dist/AI-Video-Hub-v2.0/README.txt -Force
+          Compress-Archive -Path dist/AI-Video-Hub-v2.0/* -DestinationPath AI-Video-Hub-v2.0-Windows-x64.zip -Force
+          (Get-FileHash AI-Video-Hub-v2.0-Windows-x64.zip -Algorithm SHA256).Hash | Out-File AI-Video-Hub-v2.0-Windows-x64.zip.sha256 -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Video-Hub-v2.0-Windows-x64
+          path: |
+            AI-Video-Hub-v2.0-Windows-x64.zip
+            AI-Video-Hub-v2.0-Windows-x64.zip.sha256
+          if-no-files-found: error
