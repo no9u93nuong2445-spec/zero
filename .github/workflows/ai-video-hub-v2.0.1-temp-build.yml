@@ -62,11 +62,14 @@ jobs:
           Remove-Item $appRoot -Recurse -Force -ErrorAction SilentlyContinue
           $data=Join-Path $appRoot 'data'
           New-Item -ItemType Directory -Path $data -Force | Out-Null
-          $account=@(@{
+          $account=@{
             Id='ci-smoke-doubao'; Name='CI 豆包启动测试'; Platform='Doubao'; HomeUrl='https://www.doubao.com/chat/';
             CreatedAtUtc=(Get-Date).ToUniversalTime().ToString('o'); StatusText='未打开'; LastQuotaStatus='未知'; LastCapabilityEvidence=''
-          }) | ConvertTo-Json -Depth 4
-          [IO.File]::WriteAllText((Join-Path $data 'accounts.json'),$account,[Text.UTF8Encoding]::new($false))
+          }
+          $accountJson=$account | ConvertTo-Json -Depth 4
+          $accountsJson="[$accountJson]"
+          [IO.File]::WriteAllText((Join-Path $data 'accounts.json'),$accountsJson,[Text.UTF8Encoding]::new($false))
+          Write-Host "fixture=$accountsJson"
           $exe=(Resolve-Path 'dist/AI-Video-Hub-v2.0.1/AI.VideoHub.exe').Path
           $proc=Start-Process -FilePath $exe -PassThru
           $deadline=(Get-Date).AddSeconds(45)
