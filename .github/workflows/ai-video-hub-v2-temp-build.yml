@@ -27,8 +27,10 @@ jobs:
         shell: pwsh
         run: |
           git fetch origin ai-video-hub-v2-build
-          $lines = git show origin/ai-video-hub-v2-build:ai-video-hub-v2/source.zip.b64
-          $b64 = (($lines -join '')).Trim()
+          cmd /c "git show origin/ai-video-hub-v2-build:ai-video-hub-v2/source.zip.b64 > source.zip.b64"
+          $raw = [IO.File]::ReadAllBytes('source.zip.b64')
+          $b64 = [Text.Encoding]::ASCII.GetString($raw).Trim()
+          Write-Host "source.zip.b64 chars=$($b64.Length)"
           [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
           Expand-Archive source.zip -DestinationPath src -Force
       - name: Restore
