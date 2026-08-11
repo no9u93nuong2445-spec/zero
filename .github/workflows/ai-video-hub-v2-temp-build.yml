@@ -33,15 +33,18 @@ jobs:
             @{p='ai-video-hub-v2/parts/part-07.txt'; h='8a579d5018e40edd471e3b78f710bd0510823ae2f29e332557d39a8d5665ceb8'},
             @{p='ai-video-hub-v2/parts/part-08.txt'; h='92347d6e4dbeab9988e577f01342e6efd963f131fb76ab7d2345e638b9b54ecf'}
           )
-          $pieces = foreach ($item in $ordered) {
-            if (!(Test-Path $item.p)) { throw "Missing source part: $($item.p)" }
+          $pieces=@(); $bad=@()
+          foreach ($item in $ordered) {
+            if (!(Test-Path $item.p)) { $bad += "missing:$($item.p)"; continue }
             $text=[IO.File]::ReadAllText($item.p).Trim()
             $bytes=[Text.Encoding]::UTF8.GetBytes($text)
             $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-            Write-Host "$($item.p) chars=$($text.Length) sha256=$sha"
-            if ($sha -ne $item.h) { throw "Source part SHA mismatch: $($item.p)" }
-            $text
+            $ok=($sha -eq $item.h)
+            Write-Host "$($item.p) chars=$($text.Length) sha256=$sha expected=$($item.h) ok=$ok"
+            if (!$ok) { $bad += $item.p }
+            $pieces += $text
           }
+          if ($bad.Count -gt 0) { throw "Source part mismatches: $($bad -join ', ')" }
           $b64 = ($pieces -join '')
           Write-Host "combined base64 chars=$($b64.Length)"
           if ($b64.Length -ne 55888) { throw "Source base64 length mismatch: $($b64.Length)" }
