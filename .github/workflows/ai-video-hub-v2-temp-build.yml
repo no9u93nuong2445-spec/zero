@@ -59,9 +59,9 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item 'ai-video-hub-v2/patches/WebViewSession.cs' 'src/AI-Video-Hub-v2.0/Services/WebViewSession.cs' -Force
-      - name: Restore
+      - name: Restore win-x64 runtime packs
         shell: pwsh
-        run: dotnet restore src/AI-Video-Hub-v2.0/AI.VideoHub.csproj
+        run: dotnet restore src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -r win-x64
       - name: Build
         shell: pwsh
         run: dotnet build src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -c Release --no-restore
