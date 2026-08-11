@@ -1,0 +1,80 @@
+name: AI Video Hub V2.0.1 Windows Build
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ai-video-hub-v2.0.1/**'
+      - '.github/workflows/ai-video-hub-v2.0.1-temp-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Reassemble and verify source
+        shell: pwsh
+        run: |
+          $parts=@()
+          1..20 | ForEach-Object {
+            $path=('ai-video-hub-v2.0.1/parts/part-{0:D2}.txt' -f $_)
+            if (!(Test-Path $path)) { throw "Missing source part: $path" }
+            $text=[IO.File]::ReadAllText($path).Trim()
+            Write-Host "$path chars=$($text.Length)"
+            $parts += $text
+          }
+          $b64=($parts -join '')
+          Write-Host "combined chars=$($b64.Length)"
+          if ($b64.Length -ne 66820) { throw "Source base64 length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
+          $hash=(Get-FileHash source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "source.zip sha256=$hash"
+          if ($hash -ne '1eafe1858ae96c7af8b21b095771e75bbae83f7f1b70c08a296a6041c8a42af1') { throw 'Source ZIP SHA mismatch' }
+          Expand-Archive source.zip -DestinationPath src -Force
+      - name: Static regression tests
+        shell: pwsh
+        run: |
+          node src/AI-Video-Hub-v2.0/Tests/test_capture.js
+          python src/AI-Video-Hub-v2.0/Tests/verify_project.py
+      - name: Restore win-x64 runtime packs
+        shell: pwsh
+        run: dotnet restore src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -r win-x64
+      - name: Build Release
+        shell: pwsh
+        run: dotnet build src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -c Release -r win-x64 --no-restore
+      - name: Publish self-contained Windows x64
+        shell: pwsh
+        run: dotnet publish src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v2.0.1
+      - name: Smoke checks
+        shell: pwsh
+        run: |
+          $root='dist/AI-Video-Hub-v2.0.1'
+          if (!(Test-Path "$root/AI.VideoHub.exe")) { throw 'AI.VideoHub.exe missing' }
+          if (!(Test-Path "$root/Microsoft.Web.WebView2.Core.dll")) { throw 'WebView2 Core missing' }
+          if (!(Test-Path "$root/Microsoft.Web.WebView2.Wpf.dll")) { throw 'WebView2 WPF missing' }
+          if (!(Test-Path "$root/Scripts/capture.js")) { throw 'capture.js missing' }
+          $ver=Get-Content "$root/VERSION.json" -Raw
+          if ($ver -notmatch '2.0.1') { throw 'VERSION.json is not v2.0.1' }
+          Write-Host 'publish smoke checks passed'
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item src/AI-Video-Hub-v2.0/README.md dist/AI-Video-Hub-v2.0.1/README.txt -Force
+          Compress-Archive -Path dist/AI-Video-Hub-v2.0.1/* -DestinationPath AI-Video-Hub-v2.0.1-Windows-x64.zip -Force
+          $hash=(Get-FileHash AI-Video-Hub-v2.0.1-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hash | Out-File AI-Video-Hub-v2.0.1-Windows-x64.zip.sha256 -Encoding ascii
+          Write-Host "release zip sha256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Video-Hub-v2.0.1-Windows-x64
+          path: |
+            AI-Video-Hub-v2.0.1-Windows-x64.zip
+            AI-Video-Hub-v2.0.1-Windows-x64.zip.sha256
+          if-no-files-found: error
