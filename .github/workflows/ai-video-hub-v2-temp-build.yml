@@ -22,13 +22,24 @@ jobs:
       - name: Reassemble and verify isolated V2 source
         shell: pwsh
         run: |
-          $files = Get-ChildItem 'ai-video-hub-v2/parts/part-*.txt' | Sort-Object Name
-          foreach ($f in $files) {
-            $len = ([IO.File]::ReadAllText($f.FullName).Trim()).Length
-            Write-Host "$($f.Name) chars=$len"
+          $ordered = @(
+            'ai-video-hub-v2/parts/part-01.txt',
+            'ai-video-hub-v2/parts/part-01-tail.txt',
+            'ai-video-hub-v2/parts/part-02.txt',
+            'ai-video-hub-v2/parts/part-03.txt',
+            'ai-video-hub-v2/parts/part-04.txt',
+            'ai-video-hub-v2/parts/part-05.txt',
+            'ai-video-hub-v2/parts/part-06.txt',
+            'ai-video-hub-v2/parts/part-07.txt',
+            'ai-video-hub-v2/parts/part-08.txt'
+          )
+          $pieces = foreach ($path in $ordered) {
+            if (!(Test-Path $path)) { throw "Missing source part: $path" }
+            $text=[IO.File]::ReadAllText($path).Trim()
+            Write-Host "$path chars=$($text.Length)"
+            $text
           }
-          if ($files.Count -ne 8) { throw "Expected 8 source parts, found $($files.Count)" }
-          $b64 = (($files | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join '')
+          $b64 = ($pieces -join '')
           Write-Host "combined base64 chars=$($b64.Length)"
           if ($b64.Length -ne 55888) { throw "Source base64 length mismatch: $($b64.Length)" }
           [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
