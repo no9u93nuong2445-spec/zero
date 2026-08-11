@@ -1,3 +1,4 @@
+global using System.IO;
 global using System.Net.Http;
 using AI.VideoHub.Models;
 using AI.VideoHub.Platforms;
