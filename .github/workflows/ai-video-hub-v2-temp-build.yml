@@ -27,10 +27,12 @@ jobs:
             @{p='ai-video-hub-v2/parts/part-01-b.txt'; h='4ee15fdd741752d398732a1bb9fff8c7068222239a65e7d54b8959d0fb683a0e'},
             @{p='ai-video-hub-v2/parts/part-02.txt'; h='cd5c664123d320197b28c5628c22faaee7704ab3fe840cec478637cf5c3695b7'},
             @{p='ai-video-hub-v2/parts/part-03.txt'; h='97533790df2fa7330761c9bc1717c1c7d409d8ca6fce2299aeadfa2f6354548d'},
-            @{p='ai-video-hub-v2/parts/part-04.txt'; h='286c4695c8d9f4d4072c5fe01b78d6d2758a6ec0bb8c103d0091df582f82e24a'},
+            @{p='ai-video-hub-v2/parts/part-04-a.txt'; h='a02b3e4c4ea062d74aebd9dd1c0a69dd9e06710249b9584ebb9ce9d9f30d2011'},
+            @{p='ai-video-hub-v2/parts/part-04-b.txt'; h='338d4345c57269b4e88f00154a8ed682da9bb089b7eea6a8f47019b3216a3a03'},
             @{p='ai-video-hub-v2/parts/part-05.txt'; h='392cd80d28d3d3acde429349e232243628058f9ab56a5c3c260466363f6eea89'},
             @{p='ai-video-hub-v2/parts/part-06.txt'; h='a0bd732d77094b4352e4b2b35b77fa753703fbfab1a620c5d2926c0cf3b867d8'},
-            @{p='ai-video-hub-v2/parts/part-07.txt'; h='8a579d5018e40edd471e3b78f710bd0510823ae2f29e332557d39a8d5665ceb8'},
+            @{p='ai-video-hub-v2/parts/part-07-a.txt'; h='2b776b029703c939c09e3d92ea4c982fa44ae1ab005176a35ea3a52eddbff901'},
+            @{p='ai-video-hub-v2/parts/part-07-b.txt'; h='0a5f841f87b3dd94f830b849621795f424674c5d7d4fc1f3ab384da9cbf1487d'},
             @{p='ai-video-hub-v2/parts/part-08.txt'; h='92347d6e4dbeab9988e577f01342e6efd963f131fb76ab7d2345e638b9b54ecf'}
           )
           $pieces=@(); $bad=@()
