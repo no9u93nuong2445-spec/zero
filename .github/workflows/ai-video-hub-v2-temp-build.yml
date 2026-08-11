@@ -1,9 +1,5 @@
 name: AI Video Hub V2 Temporary Windows Build
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/ai-video-hub-v2-temp-build.yml'
   pull_request:
     branches: [ main ]
     paths:
@@ -11,7 +7,7 @@ on:
       - '.github/workflows/ai-video-hub-v2.yml'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
     runs-on: windows-2022
@@ -27,6 +23,10 @@ jobs:
         shell: pwsh
         run: |
           $files = Get-ChildItem 'ai-video-hub-v2/parts/part-*.txt' | Sort-Object Name
+          foreach ($f in $files) {
+            $len = ([IO.File]::ReadAllText($f.FullName).Trim()).Length
+            Write-Host "$($f.Name) chars=$len"
+          }
           if ($files.Count -ne 8) { throw "Expected 8 source parts, found $($files.Count)" }
           $b64 = (($files | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join '')
           Write-Host "combined base64 chars=$($b64.Length)"
@@ -51,7 +51,6 @@ jobs:
           if (!(Test-Path 'dist/AI-Video-Hub-v2.0/AI.VideoHub.exe')) { throw 'AI.VideoHub.exe missing' }
           if (!(Test-Path 'dist/AI-Video-Hub-v2.0/Microsoft.Web.WebView2.Core.dll')) { throw 'WebView2 Core missing' }
           if (!(Test-Path 'dist/AI-Video-Hub-v2.0/Scripts/capture.js')) { throw 'capture.js missing' }
-          Get-ChildItem dist/AI-Video-Hub-v2.0 | Select Name,Length | Format-Table
       - name: Package
         shell: pwsh
         run: |
