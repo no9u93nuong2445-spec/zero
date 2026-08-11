@@ -19,28 +19,30 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Reassemble and verify isolated V2 source
+      - name: Verify, reassemble and decode isolated V2 source
         shell: pwsh
         run: |
           $ordered = @(
-            'ai-video-hub-v2/parts/part-01.txt',
-            'ai-video-hub-v2/parts/part-01-tail.txt',
-            'ai-video-hub-v2/parts/part-02.txt',
-            'ai-video-hub-v2/parts/part-03.txt',
-            'ai-video-hub-v2/parts/part-04.txt',
-            'ai-video-hub-v2/parts/part-05.txt',
-            'ai-video-hub-v2/parts/part-06.txt',
-            'ai-video-hub-v2/parts/part-07.txt',
-            'ai-video-hub-v2/parts/part-08.txt'
+            @{p='ai-video-hub-v2/parts/part-01.txt'; h='04e7d1f01e2359e9eeebb7877334b23d444556be16177c666ef7aa7f793df14b'},
+            @{p='ai-video-hub-v2/parts/part-01-tail.txt'; h='4fc83c2f55b57a7a5cfa949cbf585fe4e777eae53b4d973b474ed536d42262b8'},
+            @{p='ai-video-hub-v2/parts/part-02.txt'; h='cd5c664123d320197b28c5628c22faaee7704ab3fe840cec478637cf5c3695b7'},
+            @{p='ai-video-hub-v2/parts/part-03.txt'; h='97533790df2fa7330761c9bc1717c1c7d409d8ca6fce2299aeadfa2f6354548d'},
+            @{p='ai-video-hub-v2/parts/part-04.txt'; h='286c4695c8d9f4d4072c5fe01b78d6d2758a6ec0bb8c103d0091df582f82e24a'},
+            @{p='ai-video-hub-v2/parts/part-05.txt'; h='392cd80d28d3d3acde429349e232243628058f9ab56a5c3c260466363f6eea89'},
+            @{p='ai-video-hub-v2/parts/part-06.txt'; h='a0bd732d77094b4352e4b2b35b77fa753703fbfab1a620c5d2926c0cf3b867d8'},
+            @{p='ai-video-hub-v2/parts/part-07.txt'; h='8a579d5018e40edd471e3b78f710bd0510823ae2f29e332557d39a8d5665ceb8'},
+            @{p='ai-video-hub-v2/parts/part-08.txt'; h='92347d6e4dbeab9988e577f01342e6efd963f131fb76ab7d2345e638b9b54ecf'}
           )
-          $pieces = foreach ($path in $ordered) {
-            if (!(Test-Path $path)) { throw "Missing source part: $path" }
-            $text=[IO.File]::ReadAllText($path).Trim()
-            Write-Host "$path chars=$($text.Length)"
+          $pieces = foreach ($item in $ordered) {
+            if (!(Test-Path $item.p)) { throw "Missing source part: $($item.p)" }
+            $text=[IO.File]::ReadAllText($item.p).Trim()
+            $bytes=[Text.Encoding]::UTF8.GetBytes($text)
+            $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+            Write-Host "$($item.p) chars=$($text.Length) sha256=$sha"
+            if ($sha -ne $item.h) { throw "Source part SHA mismatch: $($item.p)" }
             $text
           }
           $b64 = ($pieces -join '')
-          Write-Host "combined base64 chars=$($b64.Length)"
           if ($b64.Length -ne 55888) { throw "Source base64 length mismatch: $($b64.Length)" }
           [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
           $sourceHash=(Get-FileHash source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
