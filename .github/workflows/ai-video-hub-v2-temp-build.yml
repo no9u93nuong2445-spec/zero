@@ -55,6 +55,10 @@ jobs:
           Write-Host "source.zip sha256=$sourceHash"
           if ($sourceHash -ne 'c1d320a6935a29b4d7f1bdbbff4ad3d8723e77e2b96ee755c3ed0d9088588cce') { throw "Source ZIP SHA mismatch" }
           Expand-Archive source.zip -DestinationPath src -Force
+      - name: Apply verified source patches
+        shell: pwsh
+        run: |
+          Copy-Item 'ai-video-hub-v2/patches/WebViewSession.cs' 'src/AI-Video-Hub-v2.0/Services/WebViewSession.cs' -Force
       - name: Restore
         shell: pwsh
         run: dotnet restore src/AI-Video-Hub-v2.0/AI.VideoHub.csproj
