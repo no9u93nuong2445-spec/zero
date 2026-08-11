@@ -55,7 +55,42 @@ jobs:
       - name: Publish self-contained Windows x64
         shell: pwsh
         run: dotnet publish src/AI-Video-Hub-v2.0/AI.VideoHub.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v2.0.1
-      - name: Smoke checks
+      - name: Runtime WebView2 startup smoke
+        shell: pwsh
+        run: |
+          $appRoot=Join-Path $env:LOCALAPPDATA 'AI Video Hub'
+          Remove-Item $appRoot -Recurse -Force -ErrorAction SilentlyContinue
+          $data=Join-Path $appRoot 'data'
+          New-Item -ItemType Directory -Path $data -Force | Out-Null
+          $account=@(@{
+            Id='ci-smoke-doubao'; Name='CI 豆包启动测试'; Platform='Doubao'; HomeUrl='https://www.doubao.com/chat/';
+            CreatedAtUtc=(Get-Date).ToUniversalTime().ToString('o'); StatusText='未打开'; LastQuotaStatus='未知'; LastCapabilityEvidence=''
+          }) | ConvertTo-Json -Depth 4
+          [IO.File]::WriteAllText((Join-Path $data 'accounts.json'),$account,[Text.UTF8Encoding]::new($false))
+          $exe=(Resolve-Path 'dist/AI-Video-Hub-v2.0.1/AI.VideoHub.exe').Path
+          $proc=Start-Process -FilePath $exe -PassThru
+          $deadline=(Get-Date).AddSeconds(45)
+          $initOk=$false; $navOk=$false; $last=''
+          try {
+            while ((Get-Date) -lt $deadline -and !$proc.HasExited) {
+              Start-Sleep -Milliseconds 750
+              $logDir=Join-Path $appRoot 'logs'
+              $log=Get-ChildItem $logDir -Filter 'aivh_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+              if ($log) {
+                $last=Get-Content $log.FullName -Raw -ErrorAction SilentlyContinue
+                if ($last -match 'WebView2 initialization completed') { $initOk=$true }
+                if ($last -match 'navigation completed: https://www\.doubao\.com/') { $navOk=$true; break }
+              }
+            }
+          } finally {
+            if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+          Write-Host '----- app runtime log -----'
+          Write-Host $last
+          Write-Host "webview init=$initOk doubao navigation=$navOk"
+          if (!$initOk) { throw 'Real app startup smoke failed: WebView2 controller did not initialize.' }
+          if (!$navOk) { throw 'Real app startup smoke failed: Doubao navigation did not complete within 45 seconds.' }
+      - name: Published-file smoke checks
         shell: pwsh
         run: |
           $root='dist/AI-Video-Hub-v2.0.1'
