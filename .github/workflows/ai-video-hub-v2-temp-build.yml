@@ -23,15 +23,18 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Read isolated V2 source from build branch
+      - name: Reassemble and verify isolated V2 source
         shell: pwsh
         run: |
-          git fetch origin ai-video-hub-v2-build
-          cmd /c "git show origin/ai-video-hub-v2-build:ai-video-hub-v2/source.zip.b64 > source.zip.b64"
-          $raw = [IO.File]::ReadAllBytes('source.zip.b64')
-          $b64 = [Text.Encoding]::ASCII.GetString($raw).Trim()
-          Write-Host "source.zip.b64 chars=$($b64.Length)"
+          $files = Get-ChildItem 'ai-video-hub-v2/parts/part-*.txt' | Sort-Object Name
+          if ($files.Count -ne 8) { throw "Expected 8 source parts, found $($files.Count)" }
+          $b64 = (($files | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join '')
+          Write-Host "combined base64 chars=$($b64.Length)"
+          if ($b64.Length -ne 55888) { throw "Source base64 length mismatch: $($b64.Length)" }
           [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
+          $sourceHash=(Get-FileHash source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "source.zip sha256=$sourceHash"
+          if ($sourceHash -ne 'c1d320a6935a29b4d7f1bdbbff4ad3d8723e77e2b96ee755c3ed0d9088588cce') { throw "Source ZIP SHA mismatch" }
           Expand-Archive source.zip -DestinationPath src -Force
       - name: Restore
         shell: pwsh
@@ -56,6 +59,7 @@ jobs:
           Compress-Archive -Path dist/AI-Video-Hub-v2.0/* -DestinationPath AI-Video-Hub-v2.0-Windows-x64.zip -Force
           $hash=(Get-FileHash AI-Video-Hub-v2.0-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $hash | Out-File AI-Video-Hub-v2.0-Windows-x64.zip.sha256 -Encoding ascii
+          Write-Host "release zip sha256=$hash"
       - uses: actions/upload-artifact@v4
         with:
           name: AI-Video-Hub-v2.0-Windows-x64
@@ -63,15 +67,3 @@ jobs:
             AI-Video-Hub-v2.0-Windows-x64.zip
             AI-Video-Hub-v2.0-Windows-x64.zip.sha256
           if-no-files-found: error
-      - name: Record run id for ChatGPT retrieval
-        if: github.event_name == 'push'
-        shell: pwsh
-        run: |
-          $hash=(Get-Content AI-Video-Hub-v2.0-Windows-x64.zip.sha256 -Raw).Trim()
-          $obj=[ordered]@{run_id='${{ github.run_id }}';run_attempt='${{ github.run_attempt }}';commit='${{ github.sha }}';artifact_name='AI-Video-Hub-v2.0-Windows-x64';zip_sha256=$hash}
-          $obj | ConvertTo-Json | Out-File ai-video-hub-v2-build-result.json -Encoding utf8
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ai-video-hub-v2-build-result.json
-          git commit -m '[skip ci] Record AI Video Hub V2 build result'
-          git push origin HEAD:main
