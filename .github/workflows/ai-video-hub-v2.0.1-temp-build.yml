@@ -38,6 +38,9 @@ jobs:
           Write-Host "source.zip sha256=$hash"
           if ($hash -ne '1eafe1858ae96c7af8b21b095771e75bbae83f7f1b70c08a296a6041c8a42af1') { throw 'Source ZIP SHA mismatch' }
           Expand-Archive source.zip -DestinationPath src -Force
+      - name: Apply verified publish manifest patch
+        shell: pwsh
+        run: Copy-Item 'ai-video-hub-v2.0.1/patches/AI.VideoHub.csproj' 'src/AI-Video-Hub-v2.0/AI.VideoHub.csproj' -Force
       - name: Static regression tests
         shell: pwsh
         run: |
@@ -60,6 +63,7 @@ jobs:
           if (!(Test-Path "$root/Microsoft.Web.WebView2.Core.dll")) { throw 'WebView2 Core missing' }
           if (!(Test-Path "$root/Microsoft.Web.WebView2.Wpf.dll")) { throw 'WebView2 WPF missing' }
           if (!(Test-Path "$root/Scripts/capture.js")) { throw 'capture.js missing' }
+          if (!(Test-Path "$root/VERSION.json")) { throw 'VERSION.json missing' }
           $ver=Get-Content "$root/VERSION.json" -Raw
           if ($ver -notmatch '2.0.1') { throw 'VERSION.json is not v2.0.1' }
           Write-Host 'publish smoke checks passed'
