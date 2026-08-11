@@ -23,8 +23,8 @@ jobs:
         shell: pwsh
         run: |
           $ordered = @(
-            @{p='ai-video-hub-v2/parts/part-01.txt'; h='04e7d1f01e2359e9eeebb7877334b23d444556be16177c666ef7aa7f793df14b'},
-            @{p='ai-video-hub-v2/parts/part-01-tail.txt'; h='4fc83c2f55b57a7a5cfa949cbf585fe4e777eae53b4d973b474ed536d42262b8'},
+            @{p='ai-video-hub-v2/parts/part-01-a.txt'; h='2de7564d02c70b8e4cb3d8d9f923ca4d5f1e499083e0ffe593a3ebadbb7ebc2f'},
+            @{p='ai-video-hub-v2/parts/part-01-b.txt'; h='4ee15fdd741752d398732a1bb9fff8c7068222239a65e7d54b8959d0fb683a0e'},
             @{p='ai-video-hub-v2/parts/part-02.txt'; h='cd5c664123d320197b28c5628c22faaee7704ab3fe840cec478637cf5c3695b7'},
             @{p='ai-video-hub-v2/parts/part-03.txt'; h='97533790df2fa7330761c9bc1717c1c7d409d8ca6fce2299aeadfa2f6354548d'},
             @{p='ai-video-hub-v2/parts/part-04.txt'; h='286c4695c8d9f4d4072c5fe01b78d6d2758a6ec0bb8c103d0091df582f82e24a'},
@@ -43,6 +43,7 @@ jobs:
             $text
           }
           $b64 = ($pieces -join '')
+          Write-Host "combined base64 chars=$($b64.Length)"
           if ($b64.Length -ne 55888) { throw "Source base64 length mismatch: $($b64.Length)" }
           [IO.File]::WriteAllBytes('source.zip',[Convert]::FromBase64String($b64))
           $sourceHash=(Get-FileHash source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
