@@ -21,7 +21,7 @@ new = '    private static readonly Regex UrlRegex = new("https?://[^\\\\s\\\"\'<
 if old not in s:
     raise SystemExit('DoubaoProtocolInspector UrlRegex source pattern not found')
 s = s.replace(old, new, 1)
-p.write_text(s, encoding='utf-8')
+p.write_text(s, encoding='utf-8', newline='\n')
 
 p = root / 'MainWindow.xaml.cs'
 s = p.read_text(encoding='utf-8')
@@ -39,7 +39,7 @@ new2 = '            var c = MessageBox.Show("这个地址已确认是视频，�
 if old2 not in s:
     raise SystemExit('MainWindow second multiline message pattern not found')
 s = s.replace(old2, new2, 1)
-p.write_text(s, encoding='utf-8')
+p.write_text(s, encoding='utf-8', newline='\n')
 
 for path, want in expected.items():
     got = sha(path)
