@@ -32,7 +32,7 @@ jobs:
           )
           $parts=@(); $bad=@()
           1..24 | ForEach-Object {
-            $path=('$dir/part-{0:D2}.txt' -f $_)
+            $path=("$dir/part-{0:D2}.txt" -f $_)
             if (!(Test-Path $path)) { throw "Missing source part: $path" }
             $text=[IO.File]::ReadAllText($path).Trim()
             $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::ASCII.GetBytes($text))).ToLowerInvariant()
