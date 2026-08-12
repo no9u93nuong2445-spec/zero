@@ -22,14 +22,45 @@ jobs:
       - name: Reassemble and verify source
         shell: pwsh
         run: |
-          $parts=@()
+          $expected=@(
+            '0a6018d2c760dc65200d740b3b74bd31ffb474dd723e77cef66ebad88129e667',
+            '8457ae4dca5fc27078505742960165aebed3ee14ec0b3e874e7ce540e2bece4a',
+            '81912e67cc889789abfd98eeb0a25a645184f57644e091ed4931cbe056fbb5a9',
+            'cd5c036042ed106a8233e6241130bf76f52be10f628dd05b26763180775e00a4',
+            'a3f8abd5367077d0506bf0a78cec607db20e2faaba7c15953a89c79423aff5a3',
+            '31c48ee9aeadd3f62a60adab473d9dfd54f244f3b420f6294dd2d1c5570c9bd3',
+            'c0d29f28032afb8d574fc66391c800ca301602fb4796f1e429df36767a45e5b7',
+            'd4f40a4a9460bb2771d9c82252329be7b40b53aa3ec326d3258900f444479772',
+            '9aa7a3d210950d80851237d252a68ad82777533be8a441f48711cbf9e5170222',
+            '8578626a26bc0c433d9729846c6e67c615dc6382af40c42d7331eeef48ebe0e9',
+            '2387f3adcfacc1429a1e7287073b8318f475e6385ee1e1a6ab3a850af13004ea',
+            'f02ef1d76af640d782d2123eb8df8ae86bf88c39bf78cbd27d8b0140bf89bfa9',
+            'cfd8793799eee90a4eaf2aadd5982b999e706627d29962d183085f261a03d07b',
+            '9b668d09020def2b870439ba7f667d7e2cd6f38782b14312d27289963517c593',
+            'd300f8fc3c86123a1787b04e552279a4c31b428256c59f0a0fcfb852a5fdb053',
+            '565dc61c05f8739c8247c02a66f564c64d2b1c40f9a9b35a8ceb08549d9b6aca',
+            '062c6db5fdd6b883d23e00a660a0cf8dd7350fa71cb4489a416076cd136b2875',
+            'e244b90e14d1d0cc6b006521198a2c4705eeb76dcba63de2d3f352f0ac03bafd',
+            '562a55c7ae5593caf4027e1b7a57b992362d36251f458c00e9bc3dc5fb049b0b',
+            '87ce1a6320b5bdc70afa5b5c178c3d7673906f27de9ac1411e427190738774d9',
+            '8b55f32b0752f3ccf82978187d6a19b7df593598ef4f19526fdd1e6a045ee0ec',
+            '983f8e394cc31d8546b996a34bbb3c8f5e7ff04b4739b2ca236bf197d70cd2ed',
+            '74669cbd6a79e0e0b39be4fd895167a5be781585a48ca1a23e7f9f21849b6f07',
+            '587795d8016304c45bc7a332dbf1f530d642c4c26a2d70ad09f8c89861620104'
+          )
+          $parts=@(); $bad=@()
           1..24 | ForEach-Object {
             $path=('ai-video-hub-v2.1/parts/part-{0:D2}.txt' -f $_)
             if (!(Test-Path $path)) { throw "Missing source part: $path" }
             $text=[IO.File]::ReadAllText($path).Trim()
-            Write-Host "$path chars=$($text.Length)"
+            $bytes=[Text.Encoding]::ASCII.GetBytes($text)
+            $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+            $ok=($sha -eq $expected[$_-1])
+            Write-Host "$path chars=$($text.Length) sha=$sha expected=$($expected[$_-1]) ok=$ok"
+            if (!$ok) { $bad += $_ }
             $parts += $text
           }
+          if ($bad.Count -gt 0) { throw "Corrupted source parts: $($bad -join ',')" }
           $b64=($parts -join '')
           Write-Host "combined chars=$($b64.Length)"
           if ($b64.Length -ne 75524) { throw "Source base64 length mismatch: $($b64.Length)" }
