@@ -1,0 +1,70 @@
+name: AI Video Hub V2.2 Chunk Diagnostic
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ai-video-hub-v2.2-overlay-safe/**'
+      - '.github/workflows/ai-video-hub-v2.2-chunk-diagnostic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify every reconstructed overlay chunk
+        shell: pwsh
+        run: |
+          $dir='ai-video-hub-v2.2-overlay-safe'
+          $expected=@(
+          '59bb74f34fd5c62b9a028634a9d3f63f65d34586ea5dba250efde6653b38caf0',
+          'c05c8776884a911167829017b7f28e75b19df43686b6e79753dacf8d64ff976e',
+          'f66cbfa06eef11788ae85a8ede08cbf7883951b00fa6310d6b8a69858cd7487f',
+          '42ed246bb0d9db806afa70f9394d559e71c3cf5695c85bd8227a840750f6abaf',
+          'b52a20525b219efce35a55b35b106ccae7017b0fc263a9b4edbcb43676f45268',
+          'addcab965bb058d8cc815cff352410e800077fca73b70b4d14f505301feceea2',
+          '39b5958504586da8eb291a6930e6a46d6f44c9f7ec19a251822a155dd2570357',
+          'a50be36cbe7deea7ea746548d02683370638257b2791d9cfc78107c15b54659c',
+          '9ce68381db54e15b742aa2e3876de7fb4a4ea69948140fdfabf0aa5ed821a02a',
+          '30c50ae6ea37d9ff479f5ed85b6cf5764ddc369a8dfc539e209224985c71c0d9',
+          '0ee7aee7f9f94bd73681cf69cc2c52a9de735e634f8b3477cdf80132362ace96',
+          'f786927b7ac18aadbf49eaf390a1dfe24b025e6c169caa727513bd72691e8f60',
+          '50f88966c683174b47db2beaa1d8d5105aaf573b8566d41b716c6543c134722c',
+          '2e06b136c5d45b774e7a4df910353981c74b4b4f6bb877e28f6ee7a82d4e19dd',
+          'fc6a34df9445d641df39b85b6f97eb543681470a76541944c9bbb631c82c8580',
+          'c3a0931c6d62c31b545e2016c6d8de0d750c853d9013f1007969d121fc3985bd',
+          'a1a4acebf7b139611437e69e07bcd3e603064a2f136876dae1cc68f92827b3b9',
+          '2dec2d192361d8ee9d14975e3bd20c3b6946b4ac7a0a88bb2eb0073b44974c2b',
+          '20df920d7505d0a8b3aa9acde6c4a67a62b409f919e1902e81a7e9305be88f43',
+          '596820cfd15855746281feee1bc41701f4fe64f39da1d8e1b7359ca00e0f62cd',
+          '432f2285b1c770ac82c4894d9e07016083b76a344a5afb102751f057ccaf6fba',
+          'fce002c6ab0e7f14001bf3c4a4c8a12519bd5a356405ba19e33e6b4c79535a1c',
+          'b838cd8b7ccec5c5a7a2911a47604cd697b36ed41a639c6deb327b257f333841',
+          'f33d42896fd2785ec95196da7fc6104b93db73e1a0617911bb91f64bced2eb17',
+          '0e2a77b5775abff295799ef594d2926e369057e5c3ce9770f230cf47d72d3153',
+          '70f129ba48e4d20fbbff8f576437e47f28815141ce06f74988e5586eb54a91c9',
+          'efbb1679a3327a26ce232c7bc896a5325e2d40dc0cf5bf3fb6059d310adbeb93',
+          'de96c92fe47ec9ffae60fac74de2b898951734d5c90f7f1604a8c07883a2bc2c',
+          '4077a2eb702525297352d812be3cf9def01a61d79504a120e2fcaf19be2a4f96',
+          'de0370209fd090c186521365179cc4f5b654718754cf27e9839548fa3a9f7ca4',
+          'ece4d4e8e74b72f998230b55fdb09ec45a104974794eedab561dca6d1f5be758',
+          '81427b9edbf281a47799ce90c45184215d76a8cad0f8115e1409d6092c83c267',
+          'e4d100e263d84a4b89d6440eb1cc0d84448057406a3784886220a0c282dc846f',
+          '7fed8f02f0faa81c5a69a7698c4f11d1ee3071d97a7ae99a70314417870f1e71',
+          '269559586a3a3ba53a0d4efd430c37538773ce933f2d9d2377791e380630ff20',
+          '81fe47f7c6f7028f5811f091db9607dc5362f319b42e7ef0140f155024248760')
+          $bad=@()
+          1..36 | ForEach-Object {
+            if ($_ -eq 6) { $text=[IO.File]::ReadAllText("$dir/safe-006.txt").Trim()+[IO.File]::ReadAllText("$dir/safe-006-tail.txt").Trim() }
+            elseif ($_ -eq 24) { $text=[IO.File]::ReadAllText("$dir/safe-024.txt").Trim()+[IO.File]::ReadAllText("$dir/safe-024-tail.txt").Trim() }
+            else { $text=[IO.File]::ReadAllText(("$dir/safe-{0:D3}.txt" -f $_)).Trim() }
+            $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::ASCII.GetBytes($text))).ToLowerInvariant()
+            $ok=($sha -eq $expected[$_-1])
+            Write-Host ("chunk {0:D3} chars={1} sha={2} expected={3} ok={4}" -f $_,$text.Length,$sha,$expected[$_-1],$ok)
+            if (!$ok) { $bad += $_ }
+          }
+          if ($bad.Count -gt 0) { throw "Corrupted V2.2 overlay chunks: $($bad -join ',')" }
+          Write-Host 'all V2.2 overlay chunks match canonical source'
