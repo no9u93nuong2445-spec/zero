@@ -45,11 +45,20 @@ jobs:
         shell: pwsh
         run: |
           $dir='ai-video-hub-v2.2-overlay-safe'
+          $p006=[IO.File]::ReadAllText("$dir/safe-006.txt").Trim()+[IO.File]::ReadAllText("$dir/safe-006-tail.txt").Trim()
+          $p024=[IO.File]::ReadAllText("$dir/safe-024.txt").Trim()+[IO.File]::ReadAllText("$dir/safe-024-tail.txt").Trim()
+          if ($p006.Length -ne 1800) { throw "safe-006 reconstructed length=$($p006.Length)" }
+          if ($p024.Length -ne 1800) { throw "safe-024 reconstructed length=$($p024.Length)" }
           $parts=@()
           1..36 | ForEach-Object {
-            $path=("$dir/safe-{0:D3}.txt" -f $_)
-            if (!(Test-Path $path)) { throw "Missing overlay part: $path" }
-            $parts += [IO.File]::ReadAllText($path).Trim()
+            if ($_ -eq 6) { $text=$p006 }
+            elseif ($_ -eq 24) { $text=$p024 }
+            else {
+              $path=("$dir/safe-{0:D3}.txt" -f $_)
+              if (!(Test-Path $path)) { throw "Missing overlay part: $path" }
+              $text=[IO.File]::ReadAllText($path).Trim()
+            }
+            $parts += $text
           }
           $b64=($parts -join '')
           Write-Host "overlay base64 chars=$($b64.Length)"
