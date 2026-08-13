@@ -1,6 +1,7 @@
 name: AI Video Hub V2.3 Windows Validation
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [ main ]
     paths:
       - 'ai-video-hub-v2.3/**'
