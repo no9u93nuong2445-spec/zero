@@ -1,0 +1,27 @@
+name: AI Video Hub V2.3 CI Release Recorder
+on:
+  workflow_run:
+    workflows: ["AI Video Hub V2.3 Patch Windows Validation"]
+    types: [completed]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'ai-video-hub-v2.3-build'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download validated artifact
+        run: |
+          rm -rf v23-release && mkdir v23-release
+          gh run download "$RUN_ID" -n AI-Video-Hub-v2.3-Windows-x64 -D v23-release
+          ls -lah v23-release
+      - name: Publish temporary validated release
+        run: |
+          gh release delete aivh-v2.3-ci --cleanup-tag --yes || true
+          gh release create aivh-v2.3-ci v23-release/AI-Video-Hub-v2.3-Windows-x64.zip v23-release/AI-Video-Hub-v2.3-Windows-x64.zip.sha256 --target "$HEAD_SHA" --title "AI Video Hub V2.3 Validated CI" --notes "Automatically published only after the complete Windows V2.3 validation workflow succeeds."
