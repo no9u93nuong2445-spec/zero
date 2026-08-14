@@ -1,0 +1,165 @@
+name: AI Video Hub V2.3.1 Windows Validation
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [ main ]
+    paths:
+      - 'ai-video-hub-v2.3-fixed/**'
+      - 'ai-video-hub-v2.3.1-fixed/**'
+      - 'ai-video-hub-v2.3/**'
+      - 'ai-video-hub-v2.3.1/**'
+      - '.github/workflows/ai-video-hub-v2.3.1-temp-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Reassemble verified V2.1 stable base
+        shell: pwsh
+        run: |
+          $dir='ai-video-hub-v2.1/parts'
+          $p02=[IO.File]::ReadAllText("$dir/part-02a.txt").Trim()+[IO.File]::ReadAllText("$dir/part-02b.txt").Trim()
+          $p15=[IO.File]::ReadAllText("$dir/part-15-1.txt").Trim()+[IO.File]::ReadAllText("$dir/part-15-2.txt").Trim()+[IO.File]::ReadAllText("$dir/part-15-3.txt").Trim()+[IO.File]::ReadAllText("$dir/part-15-4.txt").Trim()
+          $parts=@()
+          1..24 | ForEach-Object {
+            if ($_ -eq 2) { $text=$p02 }
+            elseif ($_ -eq 15) { $text=$p15 }
+            else { $text=[IO.File]::ReadAllText(("$dir/part-{0:D2}.txt" -f $_)).Trim() }
+            $parts += $text
+          }
+          $b64=($parts -join '')
+          if ($b64.Length -ne 75524) { throw "V2.1 base64 length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('source-v21.zip',[Convert]::FromBase64String($b64))
+          $hash=(Get-FileHash source-v21.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '5375223c26a29e335a1d400e5ce3d1ecfb4b589b5005004a98a687009614d1bd') { throw 'V2.1 source ZIP SHA mismatch' }
+          Expand-Archive source-v21.zip -DestinationPath src -Force
+          Copy-Item 'src/AI-Video-Hub-v2.1' 'src/AI-Video-Hub-v2.2' -Recurse -Force
+
+      - name: Reassemble verified V2.2 protocol overlay
+        shell: pwsh
+        run: |
+          $dir='ai-video-hub-v2.2-overlay-safe'
+          function Join-Parts([int]$n) {
+            return [IO.File]::ReadAllText(("$dir/chunk-{0:D3}-1.txt" -f $n)).Trim()+[IO.File]::ReadAllText(("$dir/chunk-{0:D3}-2.txt" -f $n)).Trim()+[IO.File]::ReadAllText(("$dir/chunk-{0:D3}-3.txt" -f $n)).Trim()
+          }
+          $special=@{ 6=(Join-Parts 6); 24=(Join-Parts 24); 32=(Join-Parts 32) }
+          $parts=@()
+          1..36 | ForEach-Object {
+            if ($special.ContainsKey($_)) { $text=$special[$_] }
+            else { $text=[IO.File]::ReadAllText(("$dir/safe-{0:D3}.txt" -f $_)).Trim() }
+            $parts += $text
+          }
+          $b64=($parts -join '')
+          if ($b64.Length -ne 63740) { throw "V2.2 overlay base64 length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v22-overlay.zip',[Convert]::FromBase64String($b64))
+          $hash=(Get-FileHash v22-overlay.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'fb762b9c8faca59a7f4d81d30734ace5d6307f7b5c267bf3e257ad4969dbcab6') { throw 'V2.2 overlay ZIP SHA mismatch' }
+          Expand-Archive v22-overlay.zip -DestinationPath 'src/AI-Video-Hub-v2.2' -Force
+          if (Test-Path 'ai-video-hub-v2.2-build-tools/apply_canonical_fix.py') { python ai-video-hub-v2.2-build-tools/apply_canonical_fix.py }
+
+      - name: Reassemble verified V2.3 baseline
+        shell: pwsh
+        run: |
+          Copy-Item 'src/AI-Video-Hub-v2.2' 'src/AI-Video-Hub-v2.3' -Recurse -Force
+          $parts=@()
+          1..7 | ForEach-Object { $parts += [IO.File]::ReadAllText(("ai-video-hub-v2.3-fixed/diff/part-{0:D2}.txt" -f $_)).Trim() }
+          $b64=($parts -join '')
+          if ($b64.Length -ne 19308) { throw "V2.3 diff base64 length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v23.patch.gz',[Convert]::FromBase64String($b64))
+          python -c "import gzip;open('v23.patch','wb').write(gzip.decompress(open('v23.patch.gz','rb').read()))"
+          $hash=(Get-FileHash v23.patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "V2.3 patch sha256=$hash"
+          if ($hash -ne '70598d8d1a8a87c2b450cb5120cb8161ae7b2eef738d15e3cf2935855eacdd04') { throw 'V2.3 source diff SHA mismatch' }
+          git apply --check --unsafe-paths --directory=src/AI-Video-Hub-v2.3 v23.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3 source diff check failed' }
+          git apply --unsafe-paths --directory=src/AI-Video-Hub-v2.3 v23.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3 source diff apply failed' }
+          if (Test-Path 'Directory.Build.targets') { Remove-Item 'Directory.Build.targets' -Force }
+
+      - name: Apply V2.3.1 Dola repair diff
+        shell: pwsh
+        run: |
+          Copy-Item 'src/AI-Video-Hub-v2.3' 'src/AI-Video-Hub-v2.3.1' -Recurse -Force
+          $parts=@()
+          1..8 | ForEach-Object { $parts += [IO.File]::ReadAllText(("ai-video-hub-v2.3.1-fixed/diff/part-{0:D2}.txt" -f $_)).Trim() }
+          $b64=($parts -join '')
+          if ($b64.Length -ne 23636) { throw "V2.3.1 diff base64 length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v231.patch.gz',[Convert]::FromBase64String($b64))
+          python -c "import gzip;open('v231.patch','wb').write(gzip.decompress(open('v231.patch.gz','rb').read()))"
+          $hash=(Get-FileHash v231.patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "V2.3.1 patch sha256=$hash"
+          if ($hash -ne '7c55f22ab14444142d0c872bee48d61d1e87fdcd2d49232037cbc85ba7858d44') { throw 'V2.3.1 source diff SHA mismatch' }
+          git apply --check --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 source diff check failed' }
+          git apply --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 source diff apply failed' }
+          $ver=Get-Content 'src/AI-Video-Hub-v2.3.1/VERSION.json' -Raw
+          if ($ver -notmatch '2.3.1-dola-gate-and-original-fix') { throw 'V2.3.1 baseline mismatch' }
+          $ui=Get-Content 'src/AI-Video-Hub-v2.3.1/MainWindow.xaml.cs' -Raw
+          if ($ui -notmatch 'Platform, "Dola"' -or $ui -match 'allowUnverifiedTrial') { throw 'V2.3.1 Dola UI gate regression' }
+          $inspector=Get-Content 'src/AI-Video-Hub-v2.3.1/Services/DolaProtocolInspector.cs' -Raw
+          if ($inspector -notmatch 'serverAdvertised15' -or $inspector -notmatch 'enable15 && serverAdvertised15') { throw 'Dola 15s bottom-layer gate missing' }
+
+      - name: Static regression tests
+        shell: pwsh
+        run: |
+          node --check src/AI-Video-Hub-v2.3.1/Scripts/capture.js
+          node --check src/AI-Video-Hub-v2.3.1/Scripts/dola_capture.js
+          node src/AI-Video-Hub-v2.3.1/Tests/test_capture.js
+          python src/AI-Video-Hub-v2.3.1/Tests/verify_project.py
+
+      - name: Restore win-x64 runtime packs
+        shell: pwsh
+        run: dotnet restore src/AI-Video-Hub-v2.3.1/AI.VideoHub.csproj -r win-x64
+      - name: Build Release
+        shell: pwsh
+        run: dotnet build src/AI-Video-Hub-v2.3.1/AI.VideoHub.csproj -c Release -r win-x64 --no-restore
+      - name: Publish self-contained Windows x64
+        shell: pwsh
+        run: dotnet publish src/AI-Video-Hub-v2.3.1/AI.VideoHub.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v2.3.1
+
+      - name: Protocol runtime self-test
+        shell: pwsh
+        run: |
+          $p=Start-Process -FilePath 'dist/AI-Video-Hub-v2.3.1/AI.VideoHub.exe' -ArgumentList '--selftest-protocol' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "protocol selftest failed exit=$($p.ExitCode)" }
+      - name: Storage runtime self-test
+        shell: pwsh
+        run: |
+          $p=Start-Process -FilePath 'dist/AI-Video-Hub-v2.3.1/AI.VideoHub.exe' -ArgumentList '--selftest-storage' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "storage selftest failed exit=$($p.ExitCode)" }
+
+      - name: Published-file smoke checks
+        shell: pwsh
+        run: |
+          $root='dist/AI-Video-Hub-v2.3.1'
+          foreach($f in @('AI.VideoHub.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','Scripts/capture.js','Scripts/dola_capture.js','VERSION.json')) { if (!(Test-Path "$root/$f")) { throw "$f missing" } }
+          $exe=(Get-Item "$root/AI.VideoHub.exe")
+          if ($exe.Length -lt 100000) { throw 'AI.VideoHub.exe unexpectedly small' }
+          $ver=Get-Content "$root/VERSION.json" -Raw
+          if ($ver -notmatch '2.3.1-dola-gate-and-original-fix') { throw 'published VERSION mismatch' }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/AI-Video-Hub-v2.3.1/* -DestinationPath AI-Video-Hub-v2.3.1-Windows-x64.zip -Force
+          $hash=(Get-FileHash AI-Video-Hub-v2.3.1-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  AI-Video-Hub-v2.3.1-Windows-x64.zip" | Out-File AI-Video-Hub-v2.3.1-Windows-x64.zip.sha256 -Encoding ascii
+          Write-Host "release zip sha256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Video-Hub-v2.3.1-Windows-x64
+          path: |
+            AI-Video-Hub-v2.3.1-Windows-x64.zip
+            AI-Video-Hub-v2.3.1-Windows-x64.zip.sha256
+          if-no-files-found: error
