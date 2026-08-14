@@ -1,0 +1,1 @@
+Trigger V2.3.1 Windows validation after moving C# newline repair to a post-patch step.
