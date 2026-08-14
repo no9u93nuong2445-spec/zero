@@ -1,0 +1,5 @@
+<Project>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'AI.VideoHub'">
+    <Using Include="AI.VideoHub.Services" />
+  </ItemGroup>
+</Project>
