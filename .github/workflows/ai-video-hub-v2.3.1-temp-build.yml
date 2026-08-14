@@ -99,14 +99,17 @@ jobs:
           $hash=(Get-FileHash v231.patch -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "V2.3.1 patch sha256=$hash"
           if ($hash -ne '7c55f22ab14444142d0c872bee48d61d1e87fdcd2d49232037cbc85ba7858d44') { throw 'V2.3.1 source diff SHA mismatch' }
-          git apply --check --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.patch
-          if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 source diff check failed' }
-          git apply --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.patch
-          if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 source diff apply failed' }
+          python ai-video-hub-v2.3.1-fixed/filter_patch.py v231.patch v231.filtered.patch
+          git apply --check --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.filtered.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 filtered source diff check failed' }
+          git apply --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.filtered.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 filtered source diff apply failed' }
+          Copy-Item 'ai-video-hub-v2.3.1-fixed/files/Services/DolaProtocolInspector.cs' 'src/AI-Video-Hub-v2.3.1/Services/DolaProtocolInspector.cs' -Force
+          Copy-Item 'ai-video-hub-v2.3.1-fixed/files/Tests/verify_project.py' 'src/AI-Video-Hub-v2.3.1/Tests/verify_project.py' -Force
           $ver=Get-Content 'src/AI-Video-Hub-v2.3.1/VERSION.json' -Raw
           if ($ver -notmatch '2.3.1-dola-gate-and-original-fix') { throw 'V2.3.1 baseline mismatch' }
           $ui=Get-Content 'src/AI-Video-Hub-v2.3.1/MainWindow.xaml.cs' -Raw
-          if ($ui -notmatch 'Platform, "Dola"' -or $ui -match 'allowUnverifiedTrial') { throw 'V2.3.1 Dola UI gate regression' }
+          if ($ui -notmatch 'CurrentProfile\?\.Platform, "Dola"' -or $ui -match 'allowUnverifiedTrial') { throw 'V2.3.1 Dola UI gate regression' }
           $inspector=Get-Content 'src/AI-Video-Hub-v2.3.1/Services/DolaProtocolInspector.cs' -Raw
           if ($inspector -notmatch 'serverAdvertised15' -or $inspector -notmatch 'enable15 && serverAdvertised15') { throw 'Dola 15s bottom-layer gate missing' }
 
