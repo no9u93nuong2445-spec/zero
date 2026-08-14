@@ -104,6 +104,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 filtered source diff check failed' }
           git apply --unsafe-paths --directory=src/AI-Video-Hub-v2.3.1 v231.filtered.patch
           if ($LASTEXITCODE -ne 0) { throw 'V2.3.1 filtered source diff apply failed' }
+          python ai-video-hub-v2.3.1-fixed/fix_mainwindow_strings.py src/AI-Video-Hub-v2.3.1/MainWindow.xaml.cs
           Copy-Item 'ai-video-hub-v2.3.1-fixed/files/Services/DolaProtocolInspector.cs' 'src/AI-Video-Hub-v2.3.1/Services/DolaProtocolInspector.cs' -Force
           Copy-Item 'ai-video-hub-v2.3.1-fixed/files/Tests/verify_project.py' 'src/AI-Video-Hub-v2.3.1/Tests/verify_project.py' -Force
           $ver=Get-Content 'src/AI-Video-Hub-v2.3.1/VERSION.json' -Raw
