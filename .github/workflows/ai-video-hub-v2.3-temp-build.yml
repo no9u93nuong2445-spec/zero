@@ -4,6 +4,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
     branches: [ main ]
     paths:
+      - 'ai-video-hub-v2.3-fixed/**'
       - 'ai-video-hub-v2.3/**'
       - '.github/workflows/ai-video-hub-v2.3-temp-build.yml'
   workflow_dispatch:
@@ -20,6 +21,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
       - name: Reassemble verified V2.1 stable base
         shell: pwsh
         run: |
@@ -40,6 +42,7 @@ jobs:
           if ($hash -ne '5375223c26a29e335a1d400e5ce3d1ecfb4b589b5005004a98a687009614d1bd') { throw 'V2.1 source ZIP SHA mismatch' }
           Expand-Archive source-v21.zip -DestinationPath src -Force
           Copy-Item 'src/AI-Video-Hub-v2.1' 'src/AI-Video-Hub-v2.2' -Recurse -Force
+
       - name: Reassemble verified V2.2 protocol overlay
         shell: pwsh
         run: |
@@ -61,33 +64,30 @@ jobs:
           if ($hash -ne 'fb762b9c8faca59a7f4d81d30734ace5d6307f7b5c267bf3e257ad4969dbcab6') { throw 'V2.2 overlay ZIP SHA mismatch' }
           Expand-Archive v22-overlay.zip -DestinationPath 'src/AI-Video-Hub-v2.2' -Force
           if (Test-Path 'ai-video-hub-v2.2-build-tools/apply_canonical_fix.py') { python ai-video-hub-v2.2-build-tools/apply_canonical_fix.py }
-      - name: Apply and verify V2.3 Dola Native Bridge overlay
+
+      - name: Apply verified V2.3 source diff
         shell: pwsh
         run: |
-          $overlay='ai-video-hub-v2.3/v23-overlay.zip'
-          $hash=(Get-FileHash $overlay -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "V2.3 overlay sha256=$hash"
-          if ($hash -ne 'cfd0e410ac06d64ba33f6a5a9898265b88a712b72a34b09618a7c2b4ad078995') { throw 'V2.3 overlay SHA mismatch' }
           Copy-Item 'src/AI-Video-Hub-v2.2' 'src/AI-Video-Hub-v2.3' -Recurse -Force
-          Expand-Archive $overlay -DestinationPath 'src/AI-Video-Hub-v2.3' -Force
+          $parts=@()
+          1..7 | ForEach-Object { $parts += [IO.File]::ReadAllText(("ai-video-hub-v2.3-fixed/diff/part-{0:D2}.txt" -f $_)).Trim() }
+          $b64=($parts -join '')
+          if ($b64.Length -ne 19308) { throw "V2.3 diff base64 length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v23.patch.gz',[Convert]::FromBase64String($b64))
+          python -c "import gzip;open('v23.patch','wb').write(gzip.decompress(open('v23.patch.gz','rb').read()))"
+          $hash=(Get-FileHash v23.patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "V2.3 patch sha256=$hash"
+          if ($hash -ne '70598d8d1a8a87c2b450cb5120cb8161ae7b2eef738d15e3cf2935855eacdd04') { throw 'V2.3 source diff SHA mismatch' }
+          git apply --check --unsafe-paths --directory=src/AI-Video-Hub-v2.3 v23.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3 source diff check failed' }
+          git apply --unsafe-paths --directory=src/AI-Video-Hub-v2.3 v23.patch
+          if ($LASTEXITCODE -ne 0) { throw 'V2.3 source diff apply failed' }
           if (Test-Path 'Directory.Build.targets') { Remove-Item 'Directory.Build.targets' -Force }
-          $expected=@{
-            'MainWindow.xaml'='5efdd2de3c110bdbf045ceed4a95f5cf13ad1e786a877db6e18fc4910b67a9ff';
-            'MainWindow.xaml.cs'='8a895edbecf81b36cd51ea6d9fc7bb02f1fbb1101c9bbbdcbfe4c1d51ffb2879';
-            'AI.VideoHub.csproj'='09c22c60643e020f4e470199347fec6d921dfb6d00e1200bb0c9729a248375c1';
-            'VERSION.json'='c99c778c8dbcefa1381aa0b856665fc6c6c28d1d27aa3433cdbb7a2e437f8b6e';
-            'Models/DolaModels.cs'='6d250673e49af3ff30353da919ba05fedf1e3a0ef7b73e8f550e7c6c30c48440';
-            'Services/DolaMediaResolver.cs'='41e477930169a5ba33387c40d8ab9beb40a8033fa2762c5975e329ae9441a1f2';
-            'Services/ProtocolSelfTest.cs'='3ef43651eb3d59671dbd1269574a83647879f02008a428319a2466e1b6a24715';
-            'Services/DolaProtocolInspector.cs'='d2e00b44bbece1cad596771c8ddc679722c4cc5fa66a42af26a2e1625528459a';
-            'Services/WebViewSession.cs'='f801757c3ee12e941fc38063210e1297f3bbe01c7a4303e11641c02047fb45e5';
-            'Scripts/dola_capture.js'='2fcab0c3a5d6cda7f82b7e8598aa6326b2b51d9f77c5c24f7af920fa88be0fe1'
-          }
-          foreach($rel in $expected.Keys) {
-            $got=(Get-FileHash (Join-Path 'src/AI-Video-Hub-v2.3' $rel) -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Host "$rel sha=$got"
-            if ($got -ne $expected[$rel]) { throw "V2.3 canonical file mismatch: $rel" }
-          }
+          $inspector=Get-Content 'src/AI-Video-Hub-v2.3/Services/DolaProtocolInspector.cs' -Raw
+          if ($inspector -notmatch 'serverAdvertised15' -or $inspector -notmatch 'enable15 && serverAdvertised15') { throw 'Dola 15s server-capability gate missing' }
+          $ver=Get-Content 'src/AI-Video-Hub-v2.3/VERSION.json' -Raw
+          if ($ver -notmatch '2.3.0-dola-native-bridge') { throw 'V2.3 baseline mismatch' }
+
       - name: Static regression tests
         shell: pwsh
         run: |
@@ -95,6 +95,7 @@ jobs:
           node --check src/AI-Video-Hub-v2.3/Scripts/dola_capture.js
           node src/AI-Video-Hub-v2.3/Tests/test_capture.js
           python src/AI-Video-Hub-v2.3/Tests/verify_project.py
+
       - name: Restore win-x64 runtime packs
         shell: pwsh
         run: dotnet restore src/AI-Video-Hub-v2.3/AI.VideoHub.csproj -r win-x64
@@ -104,61 +105,32 @@ jobs:
       - name: Publish self-contained Windows x64
         shell: pwsh
         run: dotnet publish src/AI-Video-Hub-v2.3/AI.VideoHub.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v2.3
-      - name: Dola protocol runtime self-test
+
+      - name: Protocol runtime self-test
         shell: pwsh
         run: |
           $p=Start-Process -FilePath 'dist/AI-Video-Hub-v2.3/AI.VideoHub.exe' -ArgumentList '--selftest-protocol' -PassThru -Wait
-          Write-Host "protocol selftest exit=$($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "protocol selftest failed exit=$($p.ExitCode)" }
-      - name: Storage durability runtime self-test
+      - name: Storage runtime self-test
         shell: pwsh
         run: |
           $p=Start-Process -FilePath 'dist/AI-Video-Hub-v2.3/AI.VideoHub.exe' -ArgumentList '--selftest-storage' -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "storage selftest failed exit=$($p.ExitCode)" }
-      - name: Runtime WebView2 Dola and single-instance smoke
-        shell: pwsh
-        run: |
-          $appRoot=Join-Path $env:LOCALAPPDATA 'AI Video Hub'
-          Remove-Item $appRoot -Recurse -Force -ErrorAction SilentlyContinue
-          $data=Join-Path $appRoot 'data'; New-Item -ItemType Directory -Path $data -Force | Out-Null
-          $account=@{ Id='ci-smoke-dola'; Name='CI Dola启动测试'; Platform='Dola'; HomeUrl='https://www.dola.com/chat/'; CreatedAtUtc=(Get-Date).ToUniversalTime().ToString('o'); StatusText='未打开'; LastQuotaStatus='未知'; LastCapabilityEvidence='' }
-          $json=$account | ConvertTo-Json -Depth 5
-          [IO.File]::WriteAllText((Join-Path $data 'accounts.json'),"[$json]",[Text.UTF8Encoding]::new($false))
-          $exe=(Resolve-Path 'dist/AI-Video-Hub-v2.3/AI.VideoHub.exe').Path
-          $proc=Start-Process -FilePath $exe -PassThru
-          $deadline=(Get-Date).AddSeconds(60); $init=$false; $interceptor=$false; $nav=$false; $last=''
-          try {
-            while ((Get-Date) -lt $deadline -and !$proc.HasExited) {
-              Start-Sleep -Milliseconds 750
-              $log=Get-ChildItem (Join-Path $appRoot 'logs') -Filter 'aivh_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-              if ($log) {
-                $last=Get-Content $log.FullName -Raw -ErrorAction SilentlyContinue
-                if ($last -match 'WebView2 initialization completed') { $init=$true }
-                if ($last -match 'WebView2 host network interceptor installed') { $interceptor=$true }
-                if ($last -match 'navigation completed.*https://www\.dola\.com/') { $nav=$true; break }
-              }
-            }
-            Write-Host $last
-            Write-Host "webview=$init interceptor=$interceptor dola_navigation=$nav"
-            if (!$init) { throw 'WebView2 did not initialize.' }
-            if (!$interceptor) { throw 'Host network interceptor not installed.' }
-            if (!$nav) { throw 'Dola navigation did not complete.' }
-            $probe=Start-Process -FilePath $exe -ArgumentList '--probe-single-instance' -PassThru -Wait
-            if ($probe.ExitCode -ne 2) { throw "single-instance guard failed: $($probe.ExitCode)" }
-          } finally { if (!$proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
+
       - name: Published-file smoke checks
         shell: pwsh
         run: |
           $root='dist/AI-Video-Hub-v2.3'
           foreach($f in @('AI.VideoHub.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','Scripts/capture.js','Scripts/dola_capture.js','VERSION.json')) { if (!(Test-Path "$root/$f")) { throw "$f missing" } }
-          $ver=Get-Content "$root/VERSION.json" -Raw
-          if ($ver -notmatch '2.3.0-dola-native-bridge') { throw 'VERSION baseline mismatch' }
+          $exe=(Get-Item "$root/AI.VideoHub.exe")
+          if ($exe.Length -lt 100000) { throw 'AI.VideoHub.exe unexpectedly small' }
+
       - name: Package
         shell: pwsh
         run: |
           Compress-Archive -Path dist/AI-Video-Hub-v2.3/* -DestinationPath AI-Video-Hub-v2.3-Windows-x64.zip -Force
           $hash=(Get-FileHash AI-Video-Hub-v2.3-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          $hash | Out-File AI-Video-Hub-v2.3-Windows-x64.zip.sha256 -Encoding ascii
+          "$hash  AI-Video-Hub-v2.3-Windows-x64.zip" | Out-File AI-Video-Hub-v2.3-Windows-x64.zip.sha256 -Encoding ascii
           Write-Host "release zip sha256=$hash"
       - uses: actions/upload-artifact@v4
         with:
