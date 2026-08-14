@@ -2,4 +2,10 @@
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'AI.VideoHub'">
     <Using Include="AI.VideoHub.Services" />
   </ItemGroup>
+  <Target Name="ApplyAIVideoHubV23FinalHotfix"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(MSBuildProjectName)' == 'AI.VideoHub'">
+    <Exec Command="python &quot;$(MSBuildThisFileDirectory)ai-video-hub-v2.3-fixed\hotfix\apply_hotfix.py&quot; &quot;$(MSBuildProjectDirectory)&quot;"
+          WorkingDirectory="$(MSBuildThisFileDirectory)" />
+  </Target>
 </Project>
