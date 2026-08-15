@@ -21,23 +21,23 @@ public sealed class DolaVideoSubmissionService
         var state = _observer.State;
         var template = state.LastVideoRequest;
         if (template is null || !template.IsVideoRequest)
-            return Fail("尚未学习到真实 Dola 视频提交模板。请先在当前账号正常提交一次可用的视频任务，让软件观察真实协议。\nV3 不再猜接口。" );
+            return Fail("尚未学习到真实 Dola 视频提交模板。请先在当前账号正常提交一次可用的视频任务，让软件观察真实协议。\nV3 不再猜接口。");
         if (request.DurationSeconds == 15 && !state.ServerAdvertised15)
-            return Fail("当前账号/页面响应尚未明确暴露 15 秒能力，V3 拒绝伪造 15 秒权限。" );
+            return Fail("当前账号/页面响应尚未明确暴露 15 秒能力，V3 拒绝伪造 15 秒权限。");
         if (string.IsNullOrWhiteSpace(template.DurationPath))
-            return Fail("已观察到视频请求，但没有定位到真实时长字段路径。" );
+            return Fail("已观察到视频请求，但没有定位到真实时长字段路径。");
 
         JsonNode? root;
         try { root = JsonNode.Parse(template.Body); }
         catch (Exception ex) { return Fail("提交模板不是可编辑 JSON：" + ex.Message); }
-        if (root is null) return Fail("提交模板为空。" );
+        if (root is null) return Fail("提交模板为空。");
 
         if (!JsonPathTools.Set(root, template.DurationPath, request.DurationSeconds))
             return Fail("无法写入已学习的时长字段：" + template.DurationPath);
         if (!string.IsNullOrWhiteSpace(template.PromptPath)) JsonPathTools.Set(root, template.PromptPath, request.Prompt);
         if (!string.IsNullOrWhiteSpace(template.RatioPath)) JsonPathTools.Set(root, template.RatioPath, request.AspectRatio);
 
-        // New submission must not inherit task/media evidence from a previous generation.
+        // A new submission must never inherit evidence from a previous task/media result.
         state.LastTaskId = "";
         state.LastTaskStatus = "";
         state.LastTaskDurationSeconds = null;
@@ -81,16 +81,43 @@ public sealed class DolaVideoSubmissionService
             var status = result?["status"]?.GetValue<int>() ?? 0;
             var body = result?["body"]?.GetValue<string>() ?? "";
             var error = result?["error"]?.GetValue<string>() ?? "";
-            if (!ok) DiagnosticLog.Write($"Dola submission rejected: HTTP {status} {error} {body[..Math.Min(body.Length, 400)]}");
+            if (!ok)
+            {
+                DiagnosticLog.Write($"Dola submission rejected: HTTP {status} {error} {body[..Math.Min(body.Length, 400)]}");
+            }
             else
             {
                 DiagnosticLog.Write($"Dola submission accepted by HTTP layer: HTTP {status}. This is NOT yet counted as 15s success until task lifecycle and output duration are verified.");
-                if (!string.IsNullOrWhiteSpace(body)) _observer.InspectResponseText(body, template.Url);
             }
+
+            // Parse the direct submission response independently. The returned task id is frozen into
+            // SubmissionResult so later unrelated/background Dola responses cannot silently replace the
+            // identity of the task the user actually submitted.
+            var direct = string.IsNullOrWhiteSpace(body) ? new DolaProtocolState() : DolaLifecycleInspector.ExtractFromText(body);
+            if (ok && !string.IsNullOrWhiteSpace(direct.LastTaskId))
+            {
+                state.LastTaskId = direct.LastTaskId;
+                if (!string.IsNullOrWhiteSpace(direct.LastTaskStatus)) state.LastTaskStatus = direct.LastTaskStatus;
+                if (direct.LastTaskDurationSeconds is not null) state.LastTaskDurationSeconds = direct.LastTaskDurationSeconds;
+                if (!string.IsNullOrWhiteSpace(direct.LastKnownVid)) state.LastKnownVid = direct.LastKnownVid;
+                if (direct.LastTaskAcceptedAtUtc is not null) state.LastTaskAcceptedAtUtc = direct.LastTaskAcceptedAtUtc;
+                state.HasGeneratingTask = direct.HasGeneratingTask;
+                state.LastLifecycleEvidence = "direct submission response: " + direct.LastLifecycleEvidence;
+            }
+            else if (ok)
+            {
+                DiagnosticLog.Write("HTTP accepted, but direct submission response did not expose a task id. RC1 will not certify this submission as 15s until task identity is known.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(body)) _observer.InspectResponseText(body, template.Url);
             return new SubmissionResult
             {
-                Success = ok, HttpStatus = status, BodyPreview = body[..Math.Min(body.Length, 1000)],
-                TaskId = _observer.State.LastTaskId, TaskStatus = _observer.State.LastTaskStatus, Error = error
+                Success = ok,
+                HttpStatus = status,
+                BodyPreview = body[..Math.Min(body.Length, 1000)],
+                TaskId = direct.LastTaskId,
+                TaskStatus = direct.LastTaskStatus,
+                Error = error
             };
         }
         catch (Exception ex) { return Fail("页面内提交失败：" + ex.Message); }
