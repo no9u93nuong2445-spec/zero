@@ -1,0 +1,132 @@
+name: AI Video Hub V3 RC1 Internal Validation
+
+on:
+  push:
+    branches: [ ai-video-hub-v3-rc1-internal ]
+    paths:
+      - 'ai-video-hub-v3-dev2-internal/**'
+      - 'ai-video-hub-v3-dev1/**'
+      - '.github/workflows/ai-video-hub-v3-rc1-internal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rc1:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Reassemble verified V3 base
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'ai-video-hub-v3-dev1/payload/part-*.txt' | Sort-Object Name
+          if ($parts.Count -ne 8) { throw "Expected 8 base parts, got $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join ''
+          if ($b64.Length -ne 36820) { throw "Base payload length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v3-base.zip', [Convert]::FromBase64String($b64))
+          $hash=(Get-FileHash 'v3-base.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '79e330830930943096cb599ca53c84dd2068c3df0a66a443d2e4e9c626cc7173') { throw 'V3 base SHA mismatch' }
+          Expand-Archive 'v3-base.zip' -DestinationPath 'src' -Force
+
+      - name: Apply RC1 overlay
+        shell: pwsh
+        run: |
+          $src='src/AI-Video-Hub-v3.0.0-dev1'
+          Copy-Item 'ai-video-hub-v3-dev2-internal/files/*' $src -Recurse -Force
+          Rename-Item $src 'AI-Video-Hub-v3.0.0-RC1'
+
+      - name: Static RC1 invariants
+        shell: pwsh
+        run: python src/AI-Video-Hub-v3.0.0-RC1/Tests/verify_project.py
+
+      - name: Restore and build application
+        shell: pwsh
+        run: |
+          dotnet restore src/AI-Video-Hub-v3.0.0-RC1/AI.VideoHub.V3.csproj -r win-x64
+          dotnet build src/AI-Video-Hub-v3.0.0-RC1/AI.VideoHub.V3.csproj -c Release -r win-x64 --no-restore
+
+      - name: Restore and build P0 self-test
+        shell: pwsh
+        run: |
+          dotnet restore src/AI-Video-Hub-v3.0.0-RC1/Tests/P0SelfTest/P0SelfTest.csproj -r win-x64
+          dotnet build src/AI-Video-Hub-v3.0.0-RC1/Tests/P0SelfTest/P0SelfTest.csproj -c Release -r win-x64 --no-restore
+
+      - name: Ensure real FFmpeg binaries
+        shell: pwsh
+        run: |
+          $cmdFf=Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+          $cmdFp=Get-Command ffprobe.exe -ErrorAction SilentlyContinue
+          $cmdFfOk=$cmdFf -and (Test-Path $cmdFf.Source) -and ((Get-Item $cmdFf.Source).Length -gt 1000000)
+          $cmdFpOk=$cmdFp -and (Test-Path $cmdFp.Source) -and ((Get-Item $cmdFp.Source).Length -gt 1000000)
+          if (-not $cmdFfOk -or -not $cmdFpOk) { choco install ffmpeg -y --no-progress }
+          $root='C:\ProgramData\chocolatey\lib\ffmpeg\tools'
+          $ff=(Get-ChildItem $root -Recurse -Filter ffmpeg.exe -File | Where-Object Length -gt 1000000 | Sort-Object Length -Descending | Select-Object -First 1)
+          $fp=(Get-ChildItem $root -Recurse -Filter ffprobe.exe -File | Where-Object Length -gt 1000000 | Sort-Object Length -Descending | Select-Object -First 1)
+          if (-not $ff -or -not $fp) { throw 'Real ffmpeg/ffprobe binaries not found.' }
+          $out='src/AI-Video-Hub-v3.0.0-RC1/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
+          New-Item -ItemType Directory -Force "$out/Tools" | Out-Null
+          Copy-Item $ff.FullName "$out/Tools/ffmpeg.exe" -Force
+          Copy-Item $fp.FullName "$out/Tools/ffprobe.exe" -Force
+          if ((Get-Item "$out/Tools/ffmpeg.exe").Length -lt 1000000) { throw 'ffmpeg shim detected' }
+          if ((Get-Item "$out/Tools/ffprobe.exe").Length -lt 1000000) { throw 'ffprobe shim detected' }
+
+      - name: Run protocol persistence and real-video P0 tests
+        shell: pwsh
+        run: |
+          $out='src/AI-Video-Hub-v3.0.0-RC1/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
+          & "$out/P0SelfTest.exe" --video-test
+          if ($LASTEXITCODE -ne 0) { throw "P0 self-test failed exit=$LASTEXITCODE" }
+
+      - name: Publish Windows x64 self-contained
+        shell: pwsh
+        run: |
+          dotnet publish src/AI-Video-Hub-v3.0.0-RC1/AI.VideoHub.V3.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64
+          $testTools='src/AI-Video-Hub-v3.0.0-RC1/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64/Tools'
+          New-Item -ItemType Directory -Force 'dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64/Tools' | Out-Null
+          Copy-Item "$testTools/ffmpeg.exe" 'dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64/Tools/ffmpeg.exe' -Force
+          Copy-Item "$testTools/ffprobe.exe" 'dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64/Tools/ffprobe.exe' -Force
+          foreach($f in @('AI.VideoHub.V3.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','VERSION.json','Tools/ffmpeg.exe','Tools/ffprobe.exe')) {
+            if (!(Test-Path "dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64/$f")) { throw "$f missing" }
+          }
+
+      - name: Desktop startup smoke test
+        shell: pwsh
+        run: |
+          $exe=(Resolve-Path 'dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64/AI.VideoHub.V3.exe').Path
+          $p=Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 6
+          if ($p.HasExited) { throw "Desktop app exited during startup smoke test. ExitCode=$($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          Write-Host 'PASS: desktop process stayed alive for startup smoke window'
+
+      - name: Package RC1 and source
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'dist/AI-Video-Hub-v3.0.0-RC1-Windows-x64/*' -DestinationPath 'AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip' -CompressionLevel Optimal
+          Compress-Archive -Path 'src/AI-Video-Hub-v3.0.0-RC1/*' -DestinationPath 'AI-Video-Hub-v3.0.0-RC1-source.zip' -CompressionLevel Optimal
+          $binHash=(Get-FileHash 'AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $srcHash=(Get-FileHash 'AI-Video-Hub-v3.0.0-RC1-source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$binHash  AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip" | Set-Content 'AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip.sha256' -Encoding ascii
+          "$srcHash  AI-Video-Hub-v3.0.0-RC1-source.zip" | Set-Content 'AI-Video-Hub-v3.0.0-RC1-source.zip.sha256' -Encoding ascii
+          Write-Host "binary_sha256=$binHash"
+          Write-Host "source_sha256=$srcHash"
+          Write-Host "binary_size=$((Get-Item 'AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip').Length)"
+
+      - name: Upload RC1 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Video-Hub-v3.0.0-RC1
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          path: |
+            AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip
+            AI-Video-Hub-v3.0.0-RC1-Windows-x64.zip.sha256
+            AI-Video-Hub-v3.0.0-RC1-source.zip
+            AI-Video-Hub-v3.0.0-RC1-source.zip.sha256
