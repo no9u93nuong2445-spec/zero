@@ -24,7 +24,7 @@ var fixture3 = """{"code":0,"data":{"play_info":{"main_url":"https://cdn.example
 Assert(DolaOriginalMediaResolver.ParseFixture(fixture3, "vid-3") is null, "play/video_list must not masquerade as original");
 
 var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes("https://cdn.example/base64.mp4"))));
-var fixture4 = $$"""{"code":0,"data":{"original_url":"{{encoded}}"}}""";
+var fixture4 = "{\"code\":0,\"data\":{\"original_url\":\"" + encoded + "\"}}";
 Assert(DolaOriginalMediaResolver.ParseFixture(fixture4, "vid-4")?.Url == "https://cdn.example/base64.mp4", "double-base64 original URL must decode");
 
 var requestJson = JsonNode.Parse("""{"ability_type":17,"ability_parameter":{"video_model":"seedance","duration_seconds":10,"prompt":"old","aspect_ratio":"16:9"}}""")!;

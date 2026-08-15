@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AI.VideoHub.V3</AssemblyName>
+    <RootNamespace>AI.VideoHub.V3</RootNamespace>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Tests\P0SelfTest\**\*.cs" />
+    <None Include="Tests\P0SelfTest\**\*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Scripts\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="VERSION.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
