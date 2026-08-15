@@ -5,6 +5,14 @@ namespace AI.VideoHub.V3.Services;
 
 public static class DolaLifecycleInspector
 {
+    public static DolaProtocolState ExtractFromText(string text)
+    {
+        var state = new DolaProtocolState();
+        foreach (var document in EnumerateJsonDocuments(text))
+            Walk(document, state, "$", "", "", 0);
+        return state;
+    }
+
     public static void ApplyObject(JsonObject obj, DolaProtocolState state, string path, string taskId, string vid)
     {
         var resolvedTaskId = FirstString(obj, "task_id", "taskId", "job_id", "jobId", "creation_id") ?? taskId;
@@ -49,6 +57,47 @@ public static class DolaLifecycleInspector
                 state.VideoCooldownUntilUtc = dt.ToUniversalTime();
                 break;
             }
+        }
+    }
+
+    private static void Walk(JsonNode? node, DolaProtocolState state, string path, string inheritedTaskId, string inheritedVid, int depth)
+    {
+        if (node is null || depth > 24) return;
+        if (node is JsonObject obj)
+        {
+            var localTaskId = FirstString(obj, "task_id", "taskId", "job_id", "jobId", "creation_id") ?? inheritedTaskId;
+            var localVid = FirstString(obj, "vid", "video_id", "video_key", "video_vid") ?? inheritedVid;
+            ApplyObject(obj, state, path, inheritedTaskId, inheritedVid);
+            foreach (var (key, child) in obj)
+                Walk(child, state, path + "." + key, localTaskId, localVid, depth + 1);
+            return;
+        }
+
+        if (node is JsonArray array)
+            for (var i = 0; i < array.Count; i++)
+                Walk(array[i], state, $"{path}[{i}]", inheritedTaskId, inheritedVid, depth + 1);
+    }
+
+    private static IEnumerable<JsonNode> EnumerateJsonDocuments(string text)
+    {
+        text = (text ?? "").Trim();
+        if (text.Length == 0) yield break;
+        if (text.StartsWith('{') || text.StartsWith('['))
+        {
+            JsonNode? direct = null;
+            try { direct = JsonNode.Parse(text); } catch { }
+            if (direct is not null) yield return direct;
+            yield break;
+        }
+
+        foreach (var line in text.Split('\n'))
+        {
+            var s = line.Trim();
+            if (s.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) s = s[5..].Trim();
+            if (!(s.StartsWith('{') || s.StartsWith('['))) continue;
+            JsonNode? node = null;
+            try { node = JsonNode.Parse(s); } catch { }
+            if (node is not null) yield return node;
         }
     }
 
