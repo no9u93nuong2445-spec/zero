@@ -1,17 +1,17 @@
 from pathlib import Path
-import json, re, sys, xml.etree.ElementTree as ET
+import json, sys, xml.etree.ElementTree as ET
 root = Path(__file__).resolve().parents[1]
 errors=[]
 def req(path):
     p=root/path
     if not p.exists(): errors.append(f"missing {path}")
     return p
-for f in ["AI.VideoHub.V3.csproj","App.xaml","MainWindow.xaml","MainWindow.xaml.cs","Services/DolaProtocolObserver.cs","Services/DolaVideoSubmissionService.cs","Services/DolaLifecycleInspector.cs","Services/VideoP0Verdict.cs","Services/DownloadService.cs","Services/MediaProbeService.cs","VERSION.json"]: req(f)
+for f in ["AI.VideoHub.V3.csproj","App.xaml","MainWindow.xaml","MainWindow.xaml.cs","Services/DolaProtocolObserver.cs","Services/DolaVideoSubmissionService.cs","Services/DolaLifecycleInspector.cs","Services/VideoP0Verdict.cs","Services/DownloadService.cs","Services/MediaProbeService.cs","Services/JsonStore.cs","VERSION.json"]: req(f)
 try: ET.parse(root/"MainWindow.xaml")
 except Exception as e: errors.append(f"xaml xml: {e}")
 try:
     version=json.loads((root/"VERSION.json").read_text(encoding="utf-8"))
-    if version.get("version") != "3.0.0-dev2-internal": errors.append("version mismatch")
+    if version.get("version") != "3.0.0-rc1-internal": errors.append("version mismatch")
 except Exception as e: errors.append(f"version json: {e}")
 allcs="\n".join(p.read_text(encoding="utf-8") for p in root.rglob("*.cs"))
 js="\n".join(p.read_text(encoding="utf-8") for p in root.rglob("*.js"))
@@ -26,33 +26,41 @@ if errors:
     print("FAIL")
     print("\n".join("- "+e for e in errors))
     sys.exit(1)
-print("PASS: V3 dev2 base static invariants verified")
+print("PASS: RC1 base static invariants verified")
 
-# V3 dev2 P0 invariants
 resolver = (root / 'Services' / 'DolaOriginalMediaResolver.cs').read_text(encoding='utf-8')
 assert '/samantha/media/get_play_info' in resolver
 assert 'original_media_info' in resolver and 'no_watermark_url' in resolver and 'original_url' in resolver
 assert 'watermark=1' not in resolver and 'watermark=0' not in resolver, 'resolver must not rewrite watermark flags'
 main = (root / 'MainWindow.xaml.cs').read_text(encoding='utf-8')
 assert 'DolaOriginalResolver.ResolveAsync' in main
+assert '_lastSubmittedTaskId' in main and '_lastSubmittedAccountId' in main
+assert 'HasGeneratingTask' in main and '_submitBusy' in main
 ff = (root / 'Services' / 'FfmpegWatermarkService.cs').read_text(encoding='utf-8')
 assert 'GetDimensionsAsync' in ff and 'Math.Clamp' in ff
-print('PASS: V3 dev2 P0 static invariants verified')
+print('PASS: RC1 P0 static invariants verified')
 
-# 15-second lifecycle invariants
-for required in ["LastTaskStatus", "HasGeneratingTask", "LastTaskDurationSeconds", "LastLifecycleEvidence", "DolaLifecycleInspector.ApplyObject"]:
+for required in ["LastTaskStatus", "HasGeneratingTask", "LastTaskDurationSeconds", "LastLifecycleEvidence", "DolaLifecycleInspector.ApplyObject", "DolaLifecycleInspector.ExtractFromText"]:
     if required not in allcs:
         errors.append(f"15s lifecycle invariant missing: {required}")
 if errors:
     print("FAIL")
     print("\n".join("- "+e for e in errors))
     sys.exit(1)
-print("PASS: V3 dev2 15s lifecycle invariants verified")
+print("PASS: RC1 15s lifecycle invariants verified")
 
 verdict=(root/'Services'/'VideoP0Verdict.cs').read_text(encoding='utf-8')
-for required in ['LastTaskId','LastTaskStatus','LastTaskDurationSeconds','LastKnownVid','probe.DurationSeconds']:
+for required in ['expectedTaskId','LastTaskId','LastTaskStatus','LastTaskDurationSeconds','LastKnownVid','media.ExplicitOriginal','media.Vid','probe.DurationSeconds']:
     if required not in verdict: errors.append(f'P0 verdict gate missing: {required}')
+submission=(root/'Services'/'DolaVideoSubmissionService.cs').read_text(encoding='utf-8')
+if 'ExtractFromText(body)' not in submission: errors.append('direct submission task-id freeze missing')
+download=(root/'Services'/'DownloadService.cs').read_text(encoding='utf-8')
+for required in ['GetCookiesAsync(media.Url)','Guid.NewGuid()', 'ContentType', 'File.Move(temp, final, false)']:
+    if required not in download: errors.append(f'download hardening missing: {required}')
+store=(root/'Services'/'JsonStore.cs').read_text(encoding='utf-8')
+for required in ['ConcurrentDictionary','SemaphoreSlim','Guid.NewGuid()', 'File.Move(temp, path, true)']:
+    if required not in store: errors.append(f'json store hardening missing: {required}')
 if 'VideoP0Verdict.Evaluate' not in allcs: errors.append('P0 final verdict not wired')
 if errors:
     print('FAIL'); print('\n'.join('- '+e for e in errors)); sys.exit(1)
-print('PASS: V3 dev2 final P0 certification gate verified')
+print('PASS: RC1 final certification and persistence gates verified')
