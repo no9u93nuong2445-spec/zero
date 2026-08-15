@@ -70,7 +70,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            ProtocolStatus.Text = "当前 P0 协议学习先聚焦 Dola";
+            ProtocolStatus.Text = "当前 dev1 的 P0 协议学习先聚焦 Dola";
             SubmitHint.Text = "豆包/千问保留独立账号与 WebView2 基础；视频协议将在后续适配。";
         }
         await _accountStore.SaveAsync(_accounts.ToList());
@@ -120,11 +120,14 @@ public partial class MainWindow : Window
         {
             var path = await new DownloadService().DownloadAsync(_session.Core, best, AppPaths.Downloads);
             var probe = await new MediaProbeService().VerifyVideoAsync(path, _lastSubmittedDuration);
-            var verdict = _lastSubmittedDuration is null ? "未绑定本次提交时长" : (probe.Success ? "P0 时长验证：PASS" : "P0 时长验证：FAIL");
-            MessageBox.Show($"已保存：\n{path}\n\n{probe.Message}\n{verdict}", "下载完成");
+            var verdict = _lastSubmittedDuration is null
+                ? new VideoP0VerdictResult(false, "未绑定本次提交任务，仅完成媒体文件验证。")
+                : VideoP0Verdict.Evaluate(_session.DolaObserver!.State, _lastSubmittedDuration.Value, probe);
+            MessageBox.Show($"已保存：\n{path}\n\n{probe.Message}\n{verdict.Message}", "下载完成");
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "下载失败"); }
     }
+
 
     private void ChooseLocalVideo_Click(object sender, RoutedEventArgs e)
     {

@@ -37,6 +37,16 @@ public sealed class DolaVideoSubmissionService
         if (!string.IsNullOrWhiteSpace(template.PromptPath)) JsonPathTools.Set(root, template.PromptPath, request.Prompt);
         if (!string.IsNullOrWhiteSpace(template.RatioPath)) JsonPathTools.Set(root, template.RatioPath, request.AspectRatio);
 
+
+        // New submission must not inherit task/media evidence from a previous generation.
+        state.LastTaskId = "";
+        state.LastTaskStatus = "";
+        state.LastTaskDurationSeconds = null;
+        state.LastTaskAcceptedAtUtc = null;
+        state.HasGeneratingTask = false;
+        state.LastKnownVid = "";
+        state.LastLifecycleEvidence = "";
+
         var safeHeaders = template.Headers
             .Where(kv => IsSafeReplayHeader(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
@@ -66,7 +76,7 @@ public sealed class DolaVideoSubmissionService
         try
         {
             var raw = await _core.ExecuteScriptAsync(script);
-            var first = JsonSerializer.Deserialize<string>(raw) ?? "{}";
+            var first = JsolSerializer.Deserialize<string>(raw) ?? "{}";
             var result = JsonNode.Parse(first)?.AsObject();
             var ok = result?["ok"]?.GetValue<bool>() ?? false;
             var status = result?["status"]?.GetValue<int>() ?? 0;

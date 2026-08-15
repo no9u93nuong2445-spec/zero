@@ -48,6 +48,12 @@ var completed = JsonNode.Parse("""{"task_id":"task-15","status":"completed","dur
 DolaLifecycleInspector.ApplyObject(completed, lifecycle, "$.data", lifecycle.LastTaskId, lifecycle.LastKnownVid);
 Assert(lifecycle.LastTaskStatus == "completed" && !lifecycle.HasGeneratingTask, "completed task must stop generating state");
 Assert(lifecycle.LastKnownVid == "vid-finished", "completed lifecycle must capture VID");
+var fakeProbe15 = new AI.VideoHub.V3.Models.VideoVerificationResult { Success = true, DurationSeconds = 15.02, FileSize = 100000, Message = "ok" };
+Assert(VideoP0Verdict.Evaluate(lifecycle, 15, fakeProbe15).Passed, "completed task + server duration 15 + VID + 15s media must certify");
+var wrongServerDuration = new AI.VideoHub.V3.Models.DolaProtocolState { LastTaskId = "x", LastTaskStatus = "completed", LastTaskDurationSeconds = 10, LastKnownVid = "v" };
+Assert(!VideoP0Verdict.Evaluate(wrongServerDuration, 15, fakeProbe15).Passed, "server duration 10 must never certify as 15");
+var staleMissingTask = new AI.VideoHub.V3.Models.DolaProtocolState { LastTaskStatus = "completed", LastTaskDurationSeconds = 15, LastKnownVid = "v" };
+Assert(!VideoP0Verdict.Evaluate(staleMissingTask, 15, fakeProbe15).Passed, "missing task id must never certify");
 
 if (args.Contains("--video-test"))
 {

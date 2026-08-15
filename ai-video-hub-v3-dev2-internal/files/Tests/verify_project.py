@@ -6,7 +6,7 @@ def req(path):
     p=root/path
     if not p.exists(): errors.append(f"missing {path}")
     return p
-for f in ["AI.VideoHub.V3.csproj","App.xaml","MainWindow.xaml","MainWindow.xaml.cs","Services/DolaProtocolObserver.cs","Services/DolaVideoSubmissionService.cs","Services/DolaLifecycleInspector.cs","Services/DownloadService.cs","Services/MediaProbeService.cs","VERSION.json"]: req(f)
+for f in ["AI.VideoHub.V3.csproj","App.xaml","MainWindow.xaml","MainWindow.xaml.cs","Services/DolaProtocolObserver.cs","Services/DolaVideoSubmissionService.cs","Services/DolaLifecycleInspector.cs","Services/VideoP0Verdict.cs","Services/DownloadService.cs","Services/MediaProbeService.cs","VERSION.json"]: req(f)
 try: ET.parse(root/"MainWindow.xaml")
 except Exception as e: errors.append(f"xaml xml: {e}")
 try:
@@ -48,3 +48,11 @@ if errors:
     print("\n".join("- "+e for e in errors))
     sys.exit(1)
 print("PASS: V3 dev2 15s lifecycle invariants verified")
+
+verdict=(root/'Services'/'VideoP0Verdict.cs').read_text(encoding='utf-8')
+for required in ['LastTaskId','LastTaskStatus','LastTaskDurationSeconds','LastKnownVid','probe.DurationSeconds']:
+    if required not in verdict: errors.append(f'P0 verdict gate missing: {required}')
+if 'VideoP0Verdict.Evaluate' not in allcs: errors.append('P0 final verdict not wired')
+if errors:
+    print('FAIL'); print('\n'.join('- '+e for e in errors)); sys.exit(1)
+print('PASS: V3 dev2 final P0 certification gate verified')
