@@ -56,21 +56,38 @@ jobs:
           dotnet restore src/AI-Video-Hub-v3.0.0-dev2-internal/Tests/P0SelfTest/P0SelfTest.csproj -r win-x64
           dotnet build src/AI-Video-Hub-v3.0.0-dev2-internal/Tests/P0SelfTest/P0SelfTest.csproj -c Release -r win-x64 --no-restore
 
-      - name: Ensure FFmpeg for real-video regression
+      - name: Ensure real FFmpeg binaries for video regression
         shell: pwsh
         run: |
-          $ff=Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
-          $fp=Get-Command ffprobe.exe -ErrorAction SilentlyContinue
-          if (-not $ff -or -not $fp) {
+          $cmdFf=Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+          $cmdFp=Get-Command ffprobe.exe -ErrorAction SilentlyContinue
+          $cmdFfOk=$cmdFf -and (Test-Path $cmdFf.Source) -and ((Get-Item $cmdFf.Source).Length -gt 1000000)
+          $cmdFpOk=$cmdFp -and (Test-Path $cmdFp.Source) -and ((Get-Item $cmdFp.Source).Length -gt 1000000)
+          if (-not $cmdFfOk -or -not $cmdFpOk) {
             choco install ffmpeg -y --no-progress
-            $env:Path += ';C:\ProgramData\chocolatey\bin'
-            $ff=Get-Command ffmpeg.exe
-            $fp=Get-Command ffprobe.exe
           }
+          $roots=@('C:\ProgramData\chocolatey\lib\ffmpeg\tools')
+          $ffCandidates=@()
+          $fpCandidates=@()
+          foreach($root in $roots) {
+            if (Test-Path $root) {
+              $ffCandidates += Get-ChildItem $root -Recurse -Filter ffmpeg.exe -File -ErrorAction SilentlyContinue
+              $fpCandidates += Get-ChildItem $root -Recurse -Filter ffprobe.exe -File -ErrorAction SilentlyContinue
+            }
+          }
+          if ($cmdFfOk) { $ffCandidates += Get-Item $cmdFf.Source }
+          if ($cmdFpOk) { $fpCandidates += Get-Item $cmdFp.Source }
+          $ff=$ffCandidates | Where-Object Length -gt 1000000 | Sort-Object Length -Descending | Select-Object -First 1
+          $fp=$fpCandidates | Where-Object Length -gt 1000000 | Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $ff -or -not $fp) { throw 'Real ffmpeg/ffprobe binaries not found; refusing to use Chocolatey shim.' }
+          Write-Host "ffmpeg=$($ff.FullName) size=$($ff.Length)"
+          Write-Host "ffprobe=$($fp.FullName) size=$($fp.Length)"
           $out='src/AI-Video-Hub-v3.0.0-dev2-internal/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
           New-Item -ItemType Directory -Force "$out/Tools" | Out-Null
-          Copy-Item $ff.Source "$out/Tools/ffmpeg.exe" -Force
-          Copy-Item $fp.Source "$out/Tools/ffprobe.exe" -Force
+          Copy-Item $ff.FullName "$out/Tools/ffmpeg.exe" -Force
+          Copy-Item $fp.FullName "$out/Tools/ffprobe.exe" -Force
+          if ((Get-Item "$out/Tools/ffmpeg.exe").Length -lt 1000000) { throw 'Bundled ffmpeg is unexpectedly small.' }
+          if ((Get-Item "$out/Tools/ffprobe.exe").Length -lt 1000000) { throw 'Bundled ffprobe is unexpectedly small.' }
 
       - name: Run protocol and real-video P0 tests
         shell: pwsh
@@ -83,6 +100,12 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish src/AI-Video-Hub-v3.0.0-dev2-internal/AI.VideoHub.V3.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/v3dev2
-          foreach($f in @('AI.VideoHub.V3.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','VERSION.json')) {
+          $testTools='src/AI-Video-Hub-v3.0.0-dev2-internal/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64/Tools'
+          New-Item -ItemType Directory -Force 'dist/v3dev2/Tools' | Out-Null
+          Copy-Item "$testTools/ffmpeg.exe" 'dist/v3dev2/Tools/ffmpeg.exe' -Force
+          Copy-Item "$testTools/ffprobe.exe" 'dist/v3dev2/Tools/ffprobe.exe' -Force
+          foreach($f in @('AI.VideoHub.V3.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','VERSION.json','Tools/ffmpeg.exe','Tools/ffprobe.exe')) {
             if (!(Test-Path "dist/v3dev2/$f")) { throw "$f missing" }
           }
+          if ((Get-Item 'dist/v3dev2/Tools/ffmpeg.exe').Length -lt 1000000) { throw 'published ffmpeg is unexpectedly small' }
+          if ((Get-Item 'dist/v3dev2/Tools/ffprobe.exe').Length -lt 1000000) { throw 'published ffprobe is unexpectedly small' }
