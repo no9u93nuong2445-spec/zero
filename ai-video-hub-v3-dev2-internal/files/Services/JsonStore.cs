@@ -13,12 +13,12 @@ public static class JsonStore
     public static async Task<T> LoadAsync<T>(string path, T fallback)
     {
         var gate = Gate(path);
-        await gate.WaitAsync();
+        await gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (!File.Exists(path)) return fallback;
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return await JsonSerializer.DeserializeAsync<T>(stream, Options) ?? fallback;
+            return await JsonSerializer.DeserializeAsync<T>(stream, Options).ConfigureAwait(false) ?? fallback;
         }
         catch (Exception ex)
         {
@@ -34,7 +34,7 @@ public static class JsonStore
     public static async Task SaveAsync<T>(string path, T value)
     {
         var gate = Gate(path);
-        await gate.WaitAsync();
+        await gate.WaitAsync().ConfigureAwait(false);
         string? temp = null;
         try
         {
@@ -42,8 +42,8 @@ public static class JsonStore
             temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             await using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                await JsonSerializer.SerializeAsync(stream, value, Options);
-                await stream.FlushAsync();
+                await JsonSerializer.SerializeAsync(stream, value, Options).ConfigureAwait(false);
+                await stream.FlushAsync().ConfigureAwait(false);
             }
             File.Move(temp, path, true);
             temp = null;
