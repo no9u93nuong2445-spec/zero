@@ -35,6 +35,17 @@ jobs:
           if ($hash -ne '79e330830930943096cb599ca53c84dd2068c3df0a66a443d2e4e9c626cc7173') { throw 'V3 dev1 source ZIP SHA mismatch' }
           Expand-Archive 'v3-dev1-source.zip' -DestinationPath 'src' -Force
 
+      - name: Apply reviewed compile fix 1
+        shell: pwsh
+        run: |
+          $file='src/AI-Video-Hub-v3.0.0-dev1/Services/DownloadService.cs'
+          $text=[IO.File]::ReadAllText($file)
+          if ($text -notmatch 'using System.Net.Http;') {
+            $text=$text.Replace("using System.Net;`r`n", "using System.Net;`r`nusing System.Net.Http;`r`n")
+            if ($text -notmatch 'using System.Net.Http;') { $text="using System.Net.Http;`r`n"+$text }
+            [IO.File]::WriteAllText($file,$text)
+          }
+
       - name: Static invariants
         shell: pwsh
         run: |
