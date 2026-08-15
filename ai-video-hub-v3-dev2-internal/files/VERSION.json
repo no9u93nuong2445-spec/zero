@@ -1,10 +1,12 @@
 {
-  "version": "3.0.0-dev2-internal",
-  "status": "internal-validation",
+  "version": "3.0.0-rc1-internal",
+  "status": "release-candidate-internal-validation",
   "baseline": "clean-room behavior alignment",
   "p0": {
-    "dola_original": "active get_play_info explicit-field resolver",
-    "duration15": "not user-certified",
-    "local_delogo": "video-dimension validation added"
+    "dola_original": "active get_play_info explicit-field resolver + matching VID gate",
+    "duration15": "frozen direct task_id + completed status + server duration + matching VID + ffprobe gate; still requires one real account online acceptance",
+    "local_delogo": "Windows real-video regression passed; dimensions clamped and audio preserved",
+    "storage": "per-file serialized atomic JSON writes",
+    "download": "cookie-scoped original download with temp cleanup and collision-safe filenames"
   }
 }
