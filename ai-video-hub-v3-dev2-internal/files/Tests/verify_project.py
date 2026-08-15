@@ -1,12 +1,12 @@
 from pathlib import Path
-import json, sys, xml.etree.ElementTree as ET
+import json, re, sys, xml.etree.ElementTree as ET
 root = Path(__file__).resolve().parents[1]
 errors=[]
 def req(path):
     p=root/path
     if not p.exists(): errors.append(f"missing {path}")
     return p
-for f in ["AI.VideoHub.V3.csproj","App.xaml","MainWindow.xaml","MainWindow.xaml.cs","Services/DolaProtocolObserver.cs","Services/DolaVideoSubmissionService.cs","Services/DolaOriginalMediaResolver.cs","Services/DownloadService.cs","Services/MediaProbeService.cs","Services/FfmpegWatermarkService.cs","VERSION.json"]: req(f)
+for f in ["AI.VideoHub.V3.csproj","App.xaml","MainWindow.xaml","MainWindow.xaml.cs","Services/DolaProtocolObserver.cs","Services/DolaVideoSubmissionService.cs","Services/DolaLifecycleInspector.cs","Services/DownloadService.cs","Services/MediaProbeService.cs","VERSION.json"]: req(f)
 try: ET.parse(root/"MainWindow.xaml")
 except Exception as e: errors.append(f"xaml xml: {e}")
 try:
@@ -22,16 +22,29 @@ for banned in ["window.fetch =", "XMLHttpRequest.prototype.send =", "__aivhSetDu
 for required in ["Network.requestWillBeSent", "Network.responseReceived", "ServerAdvertised15", "DurationPath", "ffprobe"]:
     if required not in allcs: errors.append(f"required invariant missing: {required}")
 if "ExplicitOriginal" not in allcs: errors.append("explicit-original gate missing")
-resolver = (root / 'Services' / 'DolaOriginalMediaResolver.cs').read_text(encoding='utf-8')
-if '/samantha/media/get_play_info' not in resolver: errors.append('get_play_info resolver missing')
-if not all(x in resolver for x in ['original_media_info','no_watermark_url','original_url']): errors.append('explicit original fields missing')
-if 'watermark=1' in resolver or 'watermark=0' in resolver: errors.append('resolver must not rewrite watermark flags')
-main = (root / 'MainWindow.xaml.cs').read_text(encoding='utf-8')
-if 'DolaOriginalResolver.ResolveAsync' not in main: errors.append('active original resolver not wired')
-ff = (root / 'Services' / 'FfmpegWatermarkService.cs').read_text(encoding='utf-8')
-if 'GetDimensionsAsync' not in ff or 'Math.Clamp' not in ff: errors.append('safe delogo bounds missing')
 if errors:
-    print('FAIL')
-    print('\n'.join('- '+e for e in errors))
+    print("FAIL")
+    print("\n".join("- "+e for e in errors))
     sys.exit(1)
+print("PASS: V3 dev2 base static invariants verified")
+
+# V3 dev2 P0 invariants
+resolver = (root / 'Services' / 'DolaOriginalMediaResolver.cs').read_text(encoding='utf-8')
+assert '/samantha/media/get_play_info' in resolver
+assert 'original_media_info' in resolver and 'no_watermark_url' in resolver and 'original_url' in resolver
+assert 'watermark=1' not in resolver and 'watermark=0' not in resolver, 'resolver must not rewrite watermark flags'
+main = (root / 'MainWindow.xaml.cs').read_text(encoding='utf-8')
+assert 'DolaOriginalResolver.ResolveAsync' in main
+ff = (root / 'Services' / 'FfmpegWatermarkService.cs').read_text(encoding='utf-8')
+assert 'GetDimensionsAsync' in ff and 'Math.Clamp' in ff
 print('PASS: V3 dev2 P0 static invariants verified')
+
+# 15-second lifecycle invariants
+for required in ["LastTaskStatus", "HasGeneratingTask", "LastTaskDurationSeconds", "LastLifecycleEvidence", "DolaLifecycleInspector.ApplyObject"]:
+    if required not in allcs:
+        errors.append(f"15s lifecycle invariant missing: {required}")
+if errors:
+    print("FAIL")
+    print("\n".join("- "+e for e in errors))
+    sys.exit(1)
+print("PASS: V3 dev2 15s lifecycle invariants verified")
