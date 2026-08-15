@@ -9,48 +9,78 @@ public sealed class DownloadService
 {
     public async Task<string> DownloadAsync(CoreWebView2 core, MediaResource media, string outputDirectory, CancellationToken ct = default)
     {
-        if (!media.ExplicitOriginal) throw new InvalidOperationException("原片按钮只接受明确 original/no_watermark 证据的资源；普通播放地址不会冒充原片。" );
+        if (!media.ExplicitOriginal)
+            throw new InvalidOperationException("V3 原片按钮只接受响应中有明确 original/no_watermark 证据的资源；普通播放地址不会冒充原片。");
+        if (!Uri.TryCreate(media.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            throw new InvalidDataException("原片地址不是有效 HTTP/HTTPS URL。");
+
         Directory.CreateDirectory(outputDirectory);
-        var uri = new Uri(media.Url);
-        using var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All, AllowAutoRedirect = true, UseCookies = false };
-        var cookies = await core.CookieManager.GetCookiesAsync(uri.GetLeftPart(UriPartial.Authority));
+        using var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = true,
+            UseCookies = false
+        };
+
+        var cookies = await core.CookieManager.GetCookiesAsync(media.Url);
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
         if (cookies.Count > 0)
-            client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}")));
+        {
+            var cookieHeader = string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", cookieHeader);
+        }
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "video/*,application/octet-stream;q=0.9,*/*;q=0.5");
         return await DownloadWithClient(client, media, outputDirectory, ct);
     }
 
-    internal static async Task<string> DownloadWithClient(HttpClient client, MediaResource media, string outputDirectory, CancellationToken ct)
+    private static async Task<string> DownloadWithClient(HttpClient client, MediaResource media, string outputDirectory, CancellationToken ct)
     {
         var ext = GuessExtension(media.Url);
-        var name = $"dola_{(string.IsNullOrWhiteSpace(media.Vid) ? "video" : media.Vid)}_{DateTime.Now:yyyyMMdd_HHmmss}{ext}";
-        foreach (var bad in Path.GetInvalidFileNameChars()) name = name.Replace(bad, '_');
-        var final = Path.Combine(outputDirectory, name);
-        var temp = final + ".part";
-        using var response = await client.GetAsync(media.Url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        var mediaType = response.Content.Headers.ContentType?.MediaType ?? "";
-        if (mediaType.Contains("text/html", StringComparison.OrdinalIgnoreCase) || mediaType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"资源返回 {mediaType}，不是视频文件。" );
-        await using (var input = await response.Content.ReadAsStreamAsync(ct))
-        await using (var output = File.Create(temp)) await input.CopyToAsync(output, ct);
-        var size = new FileInfo(temp).Length;
-        if (size < 32 * 1024) { File.Delete(temp); throw new InvalidDataException($"下载文件异常小：{size} bytes"); }
-        if (!LooksLikeMediaFile(temp)) { File.Delete(temp); throw new InvalidDataException("下载结果缺少常见媒体文件头，拒绝当作原片保存。" ); }
-        File.Move(temp, final, true);
-        DiagnosticLog.Write($"Explicit-original download saved: {final} ({size} bytes); evidence={media.Evidence}");
-        return final;
+        var baseName = $"dola_{(string.IsNullOrWhiteSpace(media.Vid) ? "video" : media.Vid)}_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
+        foreach (var bad in Path.GetInvalidFileNameChars()) baseName = baseName.Replace(bad, '_');
+        var final = GetUniquePath(outputDirectory, baseName, ext);
+        var temp = final + "." + Guid.NewGuid().ToString("N") + ".part";
+
+        try
+        {
+            using var response = await client.GetAsync(media.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+            response.EnsureSuccessStatusCode();
+
+            var mediaType = response.Content.Headers.ContentType?.MediaType ?? "";
+            if (mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
+                mediaType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
+                mediaType.Contains("html", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"下载地址返回的不是视频文件：Content-Type={mediaType}");
+
+            await using (var input = await response.Content.ReadAsStreamAsync(ct))
+            await using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                await input.CopyToAsync(output, ct);
+
+            var size = new FileInfo(temp).Length;
+            if (size < 32 * 1024)
+                throw new InvalidDataException($"下载文件异常小：{size} bytes");
+
+            File.Move(temp, final, false);
+            DiagnosticLog.Write($"Original-evidence download saved: {final} ({size} bytes); evidence={media.Evidence}");
+            return final;
+        }
+        catch
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            throw;
+        }
     }
 
-    private static bool LooksLikeMediaFile(string file)
+    private static string GetUniquePath(string directory, string baseName, string extension)
     {
-        Span<byte> head = stackalloc byte[16];
-        using var s = File.OpenRead(file);
-        var n = s.Read(head);
-        if (n < 4) return false;
-        if (n >= 8 && head[4] == (byte)'f' && head[5] == (byte)'t' && head[6] == (byte)'y' && head[7] == (byte)'p') return true;
-        if (head[0] == 0x1A && head[1] == 0x45 && head[2] == 0xDF && head[3] == 0xA3) return true;
-        return false;
+        var path = Path.Combine(directory, baseName + extension);
+        if (!File.Exists(path)) return path;
+        for (var i = 2; i < 10000; i++)
+        {
+            path = Path.Combine(directory, $"{baseName}_{i}{extension}");
+            if (!File.Exists(path)) return path;
+        }
+        return Path.Combine(directory, baseName + "_" + Guid.NewGuid().ToString("N")[..8] + extension);
     }
 
     private static string GuessExtension(string url)
