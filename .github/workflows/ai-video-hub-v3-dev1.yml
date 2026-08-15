@@ -1,0 +1,79 @@
+name: AI Video Hub V3 dev1 Windows Validation
+
+on:
+  push:
+    branches: [ ai-video-hub-v3-dev1 ]
+    paths:
+      - 'ai-video-hub-v3-dev1/**'
+      - '.github/workflows/ai-video-hub-v3-dev1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Reassemble V3 dev1 source
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'ai-video-hub-v3-dev1/payload/part-*.txt' | Sort-Object Name
+          if ($parts.Count -ne 8) { throw "Expected 8 payload parts, got $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join ''
+          if ($b64.Length -ne 36820) { throw "Payload length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v3-dev1-source.zip', [Convert]::FromBase64String($b64))
+          $hash = (Get-FileHash 'v3-dev1-source.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "source sha256=$hash"
+          if ($hash -ne '79e330830930943096cb599ca53c84dd2068c3df0a66a443d2e4e9c626cc7173') { throw 'V3 dev1 source ZIP SHA mismatch' }
+          Expand-Archive 'v3-dev1-source.zip' -DestinationPath 'src' -Force
+
+      - name: Static invariants
+        shell: pwsh
+        run: |
+          python src/AI-Video-Hub-v3.0.0-dev1/Tests/verify_project.py
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore src/AI-Video-Hub-v3.0.0-dev1/AI.VideoHub.V3.csproj -r win-x64
+
+      - name: Build Release
+        shell: pwsh
+        run: dotnet build src/AI-Video-Hub-v3.0.0-dev1/AI.VideoHub.V3.csproj -c Release -r win-x64 --no-restore
+
+      - name: Publish self-contained Windows x64
+        shell: pwsh
+        run: dotnet publish src/AI-Video-Hub-v3.0.0-dev1/AI.VideoHub.V3.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/AI-Video-Hub-v3.0.0-dev1
+
+      - name: Published-file smoke checks
+        shell: pwsh
+        run: |
+          $root='dist/AI-Video-Hub-v3.0.0-dev1'
+          foreach($f in @('AI.VideoHub.V3.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.Wpf.dll','VERSION.json')) {
+            if (!(Test-Path "$root/$f")) { throw "$f missing" }
+          }
+          $exe=(Get-Item "$root/AI.VideoHub.V3.exe")
+          if ($exe.Length -lt 100000) { throw "EXE unexpectedly small: $($exe.Length)" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/AI-Video-Hub-v3.0.0-dev1/* -DestinationPath AI-Video-Hub-v3.0.0-dev1-Windows-x64.zip -Force
+          $hash=(Get-FileHash AI-Video-Hub-v3.0.0-dev1-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  AI-Video-Hub-v3.0.0-dev1-Windows-x64.zip" | Out-File AI-Video-Hub-v3.0.0-dev1-Windows-x64.zip.sha256 -Encoding ascii
+          Write-Host "release sha256=$hash"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AI-Video-Hub-v3.0.0-dev1-Windows-x64
+          path: |
+            AI-Video-Hub-v3.0.0-dev1-Windows-x64.zip
+            AI-Video-Hub-v3.0.0-dev1-Windows-x64.zip.sha256
+          if-no-files-found: error
