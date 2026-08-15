@@ -1,0 +1,10 @@
+{
+  "version": "3.0.0-dev2-internal",
+  "status": "internal-validation",
+  "baseline": "clean-room behavior alignment",
+  "p0": {
+    "dola_original": "active get_play_info explicit-field resolver",
+    "duration15": "not user-certified",
+    "local_delogo": "video-dimension validation added"
+  }
+}

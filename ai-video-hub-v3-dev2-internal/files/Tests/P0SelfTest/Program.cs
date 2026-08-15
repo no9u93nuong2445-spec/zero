@@ -1,0 +1,81 @@
+using System.Diagnostics;
+using System.Text;
+using System.Text.Json.Nodes;
+using AI.VideoHub.V3.Services;
+
+static void Assert(bool condition, string message)
+{
+    if (!condition) throw new Exception("ASSERT: " + message);
+}
+
+Console.WriteLine("P0 self-test starting...");
+
+var fixture1 = """{"code":0,"data":{"original_media_info":{"main_url":"https://cdn.example/a.mp4","width":1920,"height":1080},"no_watermark_url":"https://cdn.example/b.mp4","original_url":"https://cdn.example/c.mp4"}}""";
+var r1 = DolaOriginalMediaResolver.ParseFixture(fixture1, "vid-1");
+Assert(r1 is not null, "explicit original fixture must resolve");
+Assert(r1!.SourcePath.Contains("original_media_info"), "original_media_info must have top priority");
+Assert(r1.ExplicitOriginal, "resolved media must be explicit original");
+
+var fixture2 = """{"code":0,"data":{"no_watermark_url":"https://cdn.example/clean.mp4","width":1080,"height":1920}}""";
+var r2 = DolaOriginalMediaResolver.ParseFixture(fixture2, "vid-2");
+Assert(r2?.Url == "https://cdn.example/clean.mp4", "no_watermark_url must resolve when original_media_info absent");
+
+var fixture3 = """{"code":0,"data":{"play_info":{"main_url":"https://cdn.example/play.mp4"},"video_list":{"1080p":{"main_url":"https://cdn.example/video.mp4"}}}}""";
+Assert(DolaOriginalMediaResolver.ParseFixture(fixture3, "vid-3") is null, "play/video_list must not masquerade as original");
+
+var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(Convert.ToBase64String(Encoding.UTF8.GetBytes("https://cdn.example/base64.mp4"))));
+var fixture4 = $$"""{"code":0,"data":{"original_url":"{{encoded}}"}}""";
+Assert(DolaOriginalMediaResolver.ParseFixture(fixture4, "vid-4")?.Url == "https://cdn.example/base64.mp4", "double-base64 original URL must decode");
+
+var requestJson = JsonNode.Parse("""{"ability_type":17,"ability_parameter":{"video_model":"seedance","duration_seconds":10,"prompt":"old","aspect_ratio":"16:9"}}""")!;
+var paths = JsonPathTools.DiscoverPaths(requestJson);
+Assert(paths.video, "video request must be detected");
+Assert(paths.duration.EndsWith("duration_seconds"), "duration_seconds path must be detected");
+Assert(JsonPathTools.Set(requestJson, paths.duration, 15), "duration path must be writable");
+Assert(requestJson["ability_parameter"]?["duration_seconds"]?.GetValue<int>() == 15, "duration must become 15 exactly");
+
+var nonVideo = JsonNode.Parse("""{"duration":10,"prompt":"hello"}""")!;
+Assert(string.IsNullOrWhiteSpace(JsonPathTools.DiscoverPaths(nonVideo).duration), "non-video duration must not be patched");
+
+if (args.Contains("--video-test"))
+{
+    var tools = Path.Combine(AppContext.BaseDirectory, "Tools");
+    var ffmpeg = Path.Combine(tools, "ffmpeg.exe");
+    var ffprobe = Path.Combine(tools, "ffprobe.exe");
+    Assert(File.Exists(ffmpeg) && File.Exists(ffprobe), "Windows ffmpeg/ffprobe must be present for video test");
+    var work = Path.Combine(Path.GetTempPath(), "ai-video-hub-v3-p0-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(work);
+    var input = Path.Combine(work, "input.mp4");
+    var output = Path.Combine(work, "output.mp4");
+    Run(ffmpeg, $"-y -f lavfi -i testsrc2=size=720x1280:rate=30 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 3 -vf \"drawbox=x=1:y=1:w=199:h=79:color=white@0.85:t=fill\" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest \"{input}\"");
+    var originalProbe = await new MediaProbeService().VerifyVideoAsync(input, 3);
+    Assert(originalProbe.Success, "synthetic input must probe as 3 seconds");
+    await new FfmpegWatermarkService().RemoveAuthorizedWatermarkRegionAsync(input, output, 0, 0, 200, 80);
+    var outputProbe = await new MediaProbeService().VerifyVideoAsync(output, 3);
+    Assert(outputProbe.Success, "processed output must remain ~3 seconds");
+    var audio = Capture(ffprobe, $"-v error -select_streams a:0 -show_entries stream=codec_type -of default=nw=1:nk=1 \"{output}\"").Trim();
+    Assert(audio.Contains("audio", StringComparison.OrdinalIgnoreCase), "processed output must preserve audio stream");
+    Console.WriteLine($"Video P0 test PASS: {outputProbe.DurationSeconds:F2}s, audio preserved");
+}
+
+Console.WriteLine("P0 self-test PASS");
+return;
+
+static void Run(string exe, string arguments)
+{
+    var p = Process.Start(new ProcessStartInfo(exe, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true })!;
+    var err = p.StandardError.ReadToEnd();
+    var output = p.StandardOutput.ReadToEnd();
+    p.WaitForExit();
+    if (p.ExitCode != 0) throw new Exception($"Process failed ({p.ExitCode}): {exe}\n{output}\n{err}");
+}
+
+static string Capture(string exe, string arguments)
+{
+    var p = Process.Start(new ProcessStartInfo(exe, arguments) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true })!;
+    var output = p.StandardOutput.ReadToEnd();
+    var err = p.StandardError.ReadToEnd();
+    p.WaitForExit();
+    if (p.ExitCode != 0) throw new Exception($"Process failed ({p.ExitCode}): {err}");
+    return output;
+}
