@@ -1,0 +1,78 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "彼岸 AI Gemini 文本模式",
+    "version": "2.1.1",
+    "description": "仅在用户明确进入 Gemini 模式时调用 Gemini 文本模型。"
+  },
+  "servers": [
+    {"url": "https://generativelanguage.googleapis.com"}
+  ],
+  "paths": {
+    "/v1beta/interactions": {
+      "post": {
+        "operationId": "geminiText",
+        "summary": "调用 Gemini 文本模型",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["model", "input"],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "enum": [
+                      "gemini-3.6-flash",
+                      "gemini-3.5-flash",
+                      "gemini-3.5-flash-lite",
+                      "gemini-3.1-pro-preview"
+                    ]
+                  },
+                  "input": {"type": "string", "maxLength": 50000},
+                  "previous_interaction_id": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Gemini 文本响应。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {"type": "string"},
+                    "status": {"type": "string"},
+                    "output_text": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          "400": {"description": "请求参数无效。"},
+          "401": {"description": "Gemini API Key 无效。"},
+          "403": {"description": "无权限或模型不可用。"},
+          "404": {"description": "模型不可用。"},
+          "429": {"description": "速率限制或配额不足。"}
+        }
+      }
+    }
+  },
+  "security": [
+    {"geminiApiKey": []}
+  ],
+  "components": {
+    "schemas": {},
+    "securitySchemes": {
+      "geminiApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-goog-api-key"
+      }
+    }
+  }
+}
