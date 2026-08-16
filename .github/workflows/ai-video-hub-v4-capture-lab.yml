@@ -15,6 +15,16 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Apply reviewed compile fixes
+        shell: pwsh
+        run: |
+          $path='ai-video-hub-v4-capture-lab/Program.cs'
+          $src=Get-Content $path -Raw
+          $src=$src.Replace('_ = capture.RunAsync(ct).ContinueWith(_ =>', '_ = capture.RunAsync(ct).ContinueWith(completedTask =>')
+          $src=$src.Replace('_connections.TryRemove(target.Id, out _);', '_connections.TryRemove(target.Id, out var removedCapture);')
+          $src=$src.Replace('target.id, target.type, title = Redactor.Fingerprint(target.title ?? ""), url = Redactor.SanitizeUrl(target.url ?? "")', 'id = target.Id, type = target.Type, title = Redactor.Fingerprint(target.Title ?? ""), url = Redactor.SanitizeUrl(target.Url ?? "")')
+          Set-Content $path $src -Encoding utf8 -NoNewline
+
       - name: Static privacy and capture invariants
         shell: pwsh
         run: |
