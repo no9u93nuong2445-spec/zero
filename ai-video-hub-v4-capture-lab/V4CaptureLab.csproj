@@ -14,4 +14,8 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <TrimmerRootAssembly Include="AI.VideoHub.V4.CaptureLab" />
+  </ItemGroup>
 </Project>
