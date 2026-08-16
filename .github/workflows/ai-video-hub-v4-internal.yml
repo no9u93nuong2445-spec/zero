@@ -99,8 +99,11 @@ jobs:
           New-Item -ItemType Directory -Force "$out/Tools" | Out-Null
           Copy-Item $ff.FullName "$out/Tools/ffmpeg.exe" -Force
           Copy-Item $fp.FullName "$out/Tools/ffprobe.exe" -Force
-          Write-Host "ffmpeg_size=$((Get-Item \"$out/Tools/ffmpeg.exe\").Length)"
-          Write-Host "ffprobe_size=$((Get-Item \"$out/Tools/ffprobe.exe\").Length)"
+          $ffSize=(Get-Item "$out/Tools/ffmpeg.exe").Length
+          $fpSize=(Get-Item "$out/Tools/ffprobe.exe").Length
+          if ($ffSize -lt 1000000 -or $fpSize -lt 1000000) { throw 'FFmpeg shim detected after copy' }
+          Write-Host "ffmpeg_size=$ffSize"
+          Write-Host "ffprobe_size=$fpSize"
 
       - name: Run V4 ledger capability privacy and real-video regression
         shell: pwsh
