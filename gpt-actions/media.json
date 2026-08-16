@@ -1,91 +1,80 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "彼岸 AI 媒体桥接器 GitHub Actions",
-    "version": "2.1.1",
-    "description": "提交 Google 语音、音乐和视频任务，并查询 GitHub Actions 状态。"
+    "title": "彼岸 AI 媒体任务网关",
+    "version": "2.3.0",
+    "description": "通过 GitHub Issue 提交和查询 Google 语音、音乐、视频任务。"
   },
   "servers": [
     {"url": "https://api.github.com"}
   ],
   "paths": {
-    "/repos/no9u93nuong2445-spec/doubao-tts-bridge/dispatches": {
+    "/repos/no9u93nuong2445-spec/doubao-tts-bridge/issues": {
       "post": {
-        "operationId": "dispatchMediaJob",
-        "summary": "提交 Google 媒体生成任务",
-        "description": "GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且无正文。204 代表已接受，不得重复提交同一个 request_id。",
+        "operationId": "submitMediaJob",
+        "summary": "提交一个媒体生成任务",
+        "description": "创建标题格式为 [GPT_MEDIA] request_id 的 GitHub Issue。body 必须是媒体任务 JSON 字符串。成功创建后返回 issue number，后续只能查询该 issue，不得用同一 request_id 再次提交。",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["event_type", "client_payload"],
+                "required": ["title", "body"],
                 "properties": {
-                  "event_type": {
+                  "title": {
                     "type": "string",
-                    "enum": ["google_tts", "google_music", "google_video"]
+                    "pattern": "^\\[GPT_MEDIA\\] [A-Za-z0-9._-]{4,100}$",
+                    "description": "格式必须是 [GPT_MEDIA] request_id。"
                   },
-                  "client_payload": {"$ref": "#/components/schemas/MediaPayload"}
+                  "body": {
+                    "type": "string",
+                    "description": "媒体任务 JSON 字符串。"
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "204": {"description": "GitHub 已接受任务。"},
+          "201": {
+            "description": "任务 Issue 已创建。",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/MediaIssue"}
+              }
+            }
+          },
           "401": {"description": "GitHub PAT 无效。"},
-          "403": {"description": "GitHub PAT 权限不足。"},
-          "422": {"description": "请求参数无效。"}
+          "403": {"description": "GitHub PAT 缺少 Issues 写权限。"},
+          "422": {"description": "Issue 参数无效。"}
         }
       }
     },
-    "/repos/no9u93nuong2445-spec/doubao-tts-bridge/actions/workflows/gpt_media_dispatch.yml/runs": {
+    "/repos/no9u93nuong2445-spec/doubao-tts-bridge/issues/{issue_number}": {
       "get": {
-        "operationId": "listMediaRuns",
-        "summary": "查询最近媒体任务",
+        "operationId": "getMediaJob",
+        "summary": "查询媒体任务状态和结果",
         "parameters": [
-          {"name": "event", "in": "query", "required": false, "schema": {"type": "string", "default": "repository_dispatch"}},
-          {"name": "branch", "in": "query", "required": false, "schema": {"type": "string", "default": "main"}},
-          {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10}}
+          {
+            "name": "issue_number",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "integer", "minimum": 1}
+          }
         ],
         "responses": {
           "200": {
-            "description": "工作流运行列表。",
+            "description": "媒体任务 Issue。body 是紧凑 JSON 状态对象。",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "total_count": {"type": "integer"},
-                    "workflow_runs": {
-                      "type": "array",
-                      "items": {"$ref": "#/components/schemas/WorkflowRun"}
-                    }
-                  }
-                }
+                "schema": {"$ref": "#/components/schemas/MediaIssue"}
               }
             }
-          }
-        }
-      }
-    },
-    "/repos/no9u93nuong2445-spec/doubao-tts-bridge/actions/runs/{run_id}": {
-      "get": {
-        "operationId": "getMediaRun",
-        "summary": "查询指定媒体任务状态",
-        "parameters": [
-          {"name": "run_id", "in": "path", "required": true, "schema": {"type": "integer"}}
-        ],
-        "responses": {
-          "200": {
-            "description": "工作流运行状态。",
-            "content": {
-              "application/json": {
-                "schema": {"$ref": "#/components/schemas/WorkflowRun"}
-              }
-            }
-          }
+          },
+          "401": {"description": "GitHub PAT 无效。"},
+          "403": {"description": "GitHub PAT 缺少 Issues 读权限。"},
+          "404": {"description": "找不到该任务。"}
         }
       }
     }
@@ -95,53 +84,22 @@
   ],
   "components": {
     "schemas": {
-      "MediaPayload": {
-        "type": "object",
-        "required": ["request_id"],
-        "properties": {
-          "request_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{4,100}$"},
-          "text": {"type": "string", "maxLength": 12000},
-          "voice": {"type": "string"},
-          "style": {"type": "string"},
-          "tts_mode": {"type": "string", "enum": ["latest", "fast", "pro"]},
-          "prompt": {"type": "string", "maxLength": 12000},
-          "mode": {"type": "string", "enum": ["clip", "pro"]},
-          "video_mode": {"type": "string", "enum": ["omni", "veo", "veo_fast", "veo_lite"]},
-          "model": {
-            "type": "string",
-            "enum": [
-              "gemini-3.1-flash-tts-preview",
-              "gemini-2.5-flash-preview-tts",
-              "gemini-2.5-pro-preview-tts",
-              "lyria-3-clip-preview",
-              "lyria-3-pro-preview",
-              "gemini-omni-flash-preview",
-              "veo-3.1-generate-preview",
-              "veo-3.1-fast-generate-preview",
-              "veo-3.1-lite-generate-preview"
-            ]
-          },
-          "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16"]},
-          "duration_seconds": {"type": "integer", "minimum": 3, "maximum": 10},
-          "resolution": {"type": "string", "enum": ["720p", "1080p", "4k"]},
-          "output_name": {"type": "string"}
-        }
-      },
-      "WorkflowRun": {
+      "MediaIssue": {
         "type": "object",
         "properties": {
-          "id": {"type": "integer"},
-          "display_title": {"type": "string"},
-          "status": {"type": "string"},
-          "conclusion": {"type": "string"},
-          "html_url": {"type": "string"},
-          "created_at": {"type": "string"},
-          "updated_at": {"type": "string"}
+          "number": {"type": "integer"},
+          "state": {"type": "string"},
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "html_url": {"type": "string"}
         }
       }
     },
     "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer"}
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
     }
   }
 }
