@@ -1,0 +1,104 @@
+name: AI Video Hub V4 Capture Lab
+
+on:
+  push:
+    branches: [ ai-video-hub-v4-capture-lab ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Static privacy and capture invariants
+        shell: pwsh
+        run: |
+          $src = Get-Content 'ai-video-hub-v4-capture-lab/Program.cs' -Raw
+          $required = @(
+            'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS',
+            '--remote-debugging-port=',
+            '--remote-debugging-address=127.0.0.1',
+            'Network.requestWillBeSent',
+            'Network.responseReceived',
+            'Network.getResponseBody',
+            'Network.eventSourceMessageReceived',
+            'Network.webSocketFrameReceived',
+            'Redactor.SanitizeBody',
+            'Redactor.SafeHeaders',
+            '<redacted'
+          )
+          foreach ($x in $required) { if (-not $src.Contains($x)) { throw "missing invariant: $x" } }
+          if ($src.Contains('psi.Environment["COOKIE"')) { throw 'collector must not inject cookies' }
+          if ($src.Contains('request["headers"].ToJsonString')) { throw 'raw request headers must not be serialized' }
+          if ($src.Contains('response["headers"].ToJsonString')) { throw 'raw response headers must not be serialized' }
+          Write-Host 'PASS: privacy and capture invariants'
+
+      - name: Build collector
+        shell: pwsh
+        run: |
+          dotnet restore ai-video-hub-v4-capture-lab/V4CaptureLab.csproj -r win-x64
+          dotnet build ai-video-hub-v4-capture-lab/V4CaptureLab.csproj -c Release -r win-x64 --no-restore
+
+      - name: Build CDP smoke probe
+        shell: pwsh
+        run: |
+          dotnet restore ai-video-hub-v4-capture-lab/Tests/CdpSmoke/CdpSmoke.csproj
+          dotnet build ai-video-hub-v4-capture-lab/Tests/CdpSmoke/CdpSmoke.csproj -c Release --no-restore
+
+      - name: Verify localhost CDP attach against Edge
+        shell: pwsh
+        run: |
+          $edgeCandidates = @(
+            "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
+            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+          )
+          $edge = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $edge) { throw 'Microsoft Edge not found on runner' }
+          $port = 9333
+          $profile = Join-Path $env:RUNNER_TEMP 'aivh-v4-cdp-edge-profile'
+          $p = Start-Process -FilePath $edge -ArgumentList "--headless=new --disable-gpu --remote-debugging-port=$port --remote-debugging-address=127.0.0.1 --user-data-dir=`"$profile`" about:blank" -PassThru
+          try {
+            dotnet run --project ai-video-hub-v4-capture-lab/Tests/CdpSmoke/CdpSmoke.csproj -c Release --no-build -- $port
+            if ($LASTEXITCODE -ne 0) { throw "CDP smoke failed: $LASTEXITCODE" }
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Publish small self-contained collector
+        shell: pwsh
+        run: |
+          dotnet publish ai-video-hub-v4-capture-lab/V4CaptureLab.csproj -c Release -r win-x64 --self-contained true --no-restore -o dist/publish /p:PublishSingleFile=true /p:PublishTrimmed=true /p:TrimMode=partial
+          $exe='dist/publish/AI.VideoHub.V4.CaptureLab.exe'
+          if (!(Test-Path $exe)) { throw 'collector exe missing' }
+          $size=(Get-Item $exe).Length
+          if ($size -lt 1000000) { throw "collector unexpectedly small: $size" }
+          if ($size -gt 60000000) { throw "collector too large for one-time tool: $size" }
+          Write-Host "collector_size=$size"
+
+      - name: Package and hash
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/package | Out-Null
+          Copy-Item dist/publish/AI.VideoHub.V4.CaptureLab.exe dist/package/
+          Copy-Item ai-video-hub-v4-capture-lab/README.txt dist/package/
+          Compress-Archive -Path dist/package/* -DestinationPath dist/AI-Video-Hub-V4-CaptureLab-Windows-x64.zip -Force
+          $hash=(Get-FileHash dist/AI-Video-Hub-V4-CaptureLab-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  AI-Video-Hub-V4-CaptureLab-Windows-x64.zip" | Set-Content dist/AI-Video-Hub-V4-CaptureLab-Windows-x64.zip.sha256 -NoNewline
+          Expand-Archive dist/AI-Video-Hub-V4-CaptureLab-Windows-x64.zip -DestinationPath dist/check -Force
+          if (!(Test-Path dist/check/AI.VideoHub.V4.CaptureLab.exe)) { throw 'zip missing exe' }
+          Write-Host "release_sha256=$hash"
+
+      - name: Upload collector
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Video-Hub-V4-CaptureLab-Windows-x64
+          path: |
+            dist/AI-Video-Hub-V4-CaptureLab-Windows-x64.zip
+            dist/AI-Video-Hub-V4-CaptureLab-Windows-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
