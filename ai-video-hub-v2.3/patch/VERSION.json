@@ -1,0 +1,11 @@
+{
+  "version": "2.3.0",
+  "baseline": "2.3.0-dola-native-bridge",
+  "focus": [
+    "Dola native 15-second request path",
+    "runtime protocol snapshot",
+    "Dola VID to get_play_info resolver",
+    "explicit original/no-watermark prioritization",
+    "V2.1 stability baseline retained"
+  ]
+}

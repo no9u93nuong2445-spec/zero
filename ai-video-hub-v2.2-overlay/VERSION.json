@@ -1,0 +1,8 @@
+{
+  "name": "AI Video Hub",
+  "version": "2.2.0",
+  "channel": "doubao-protocol-adapter",
+  "platform": "Windows x64",
+  "baseline": "2.2.0-host-network-capture",
+  "notes": "Moves Doubao video observation and 15-second compatibility handling to WebView2 host-level network interception. Separates verified video playback resources from explicit original/no_watermark resources and rejects image URLs such as HEIC as video candidates."
+}
