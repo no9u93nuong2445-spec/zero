@@ -41,30 +41,44 @@ jobs:
           Copy-Item 'ai-video-hub-v3-dev2-internal/files/*' $src -Recurse -Force
           if (!(Test-Path "$src/AI.VideoHub.V3.csproj")) { throw 'V3 overlay failed' }
 
-      - name: Reassemble and apply V4 foundation overlay
+      - name: Reassemble and apply V4 foundation A overlay
         shell: pwsh
         run: |
           $parts = Get-ChildItem 'ai-video-hub-v4-internal/payload/part-*.txt' | Sort-Object Name
-          if ($parts.Count -ne 6) { throw "Expected 6 V4 overlay parts, got $($parts.Count)" }
+          if ($parts.Count -ne 6) { throw "Expected 6 V4 A overlay parts, got $($parts.Count)" }
           $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join ''
-          if ($b64.Length -ne 36564) { throw "V4 overlay payload length mismatch: $($b64.Length)" }
-          [IO.File]::WriteAllBytes('v4-overlay.zip', [Convert]::FromBase64String($b64))
-          $hash=(Get-FileHash 'v4-overlay.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '43c08dc2a7b3ab04963072ffb59a6cf49884d9fee5831a14391bcee2a09436fc') { throw "V4 overlay SHA mismatch: $hash" }
+          if ($b64.Length -ne 36564) { throw "V4 A payload length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v4-a-overlay.zip', [Convert]::FromBase64String($b64))
+          $hash=(Get-FileHash 'v4-a-overlay.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '43c08dc2a7b3ab04963072ffb59a6cf49884d9fee5831a14391bcee2a09436fc') { throw "V4 A SHA mismatch: $hash" }
           $src='src/AI-Video-Hub-v3.0.0-dev1'
-          Expand-Archive 'v4-overlay.zip' -DestinationPath $src -Force
+          Expand-Archive 'v4-a-overlay.zip' -DestinationPath $src -Force
           Rename-Item $src 'AI-Video-Hub-v4.0.0-internal-a'
 
-      - name: V4 clean-room foundation invariants
+      - name: Reassemble and apply V4 page-native B overlay
         shell: pwsh
         run: |
-          python src/AI-Video-Hub-v4.0.0-internal-a/Tests/verify_v4.py
+          $parts = Get-ChildItem 'ai-video-hub-v4-internal/payload-b/part-*.txt' | Sort-Object Name
+          if ($parts.Count -ne 6) { throw "Expected 6 V4 B overlay parts, got $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join ''
+          if ($b64.Length -ne 35296) { throw "V4 B payload length mismatch: $($b64.Length)" }
+          [IO.File]::WriteAllBytes('v4-b-overlay.zip', [Convert]::FromBase64String($b64))
+          $hash=(Get-FileHash 'v4-b-overlay.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '3550f76fdaf5dcee7f7044be409f7858bb648da1f796af537cc208f67e967226') { throw "V4 B SHA mismatch: $hash" }
+          $src='src/AI-Video-Hub-v4.0.0-internal-a'
+          Expand-Archive 'v4-b-overlay.zip' -DestinationPath $src -Force
+          Rename-Item $src 'AI-Video-Hub-v4.0.0-internal-b'
+
+      - name: V4 clean-room page-native invariants
+        shell: pwsh
+        run: |
+          python src/AI-Video-Hub-v4.0.0-internal-b/Tests/verify_v4.py
           if ($LASTEXITCODE -ne 0) { throw "V4 static verification failed: $LASTEXITCODE" }
 
       - name: Restore and build V4 application
         shell: pwsh
         run: |
-          $src='src/AI-Video-Hub-v4.0.0-internal-a'
+          $src='src/AI-Video-Hub-v4.0.0-internal-b'
           dotnet restore "$src/AI.VideoHub.V3.csproj" -r win-x64
           dotnet build "$src/AI.VideoHub.V3.csproj" -c Release -r win-x64 --no-restore
           if ($LASTEXITCODE -ne 0) { throw "V4 app build failed: $LASTEXITCODE" }
@@ -72,7 +86,7 @@ jobs:
       - name: Restore and build V4 self-test
         shell: pwsh
         run: |
-          $src='src/AI-Video-Hub-v4.0.0-internal-a'
+          $src='src/AI-Video-Hub-v4.0.0-internal-b'
           dotnet restore "$src/Tests/P0SelfTest/P0SelfTest.csproj" -r win-x64
           dotnet build "$src/Tests/P0SelfTest/P0SelfTest.csproj" -c Release -r win-x64 --no-restore
           if ($LASTEXITCODE -ne 0) { throw "V4 self-test build failed: $LASTEXITCODE" }
@@ -95,7 +109,7 @@ jobs:
           if (-not $ff -and $cmdFfOk) { $ff=Get-Item $cmdFf.Source }
           if (-not $fp -and $cmdFpOk) { $fp=Get-Item $cmdFp.Source }
           if (-not $ff -or -not $fp) { throw 'Real ffmpeg/ffprobe binaries not found.' }
-          $out='src/AI-Video-Hub-v4.0.0-internal-a/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
+          $out='src/AI-Video-Hub-v4.0.0-internal-b/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
           New-Item -ItemType Directory -Force "$out/Tools" | Out-Null
           Copy-Item $ff.FullName "$out/Tools/ffmpeg.exe" -Force
           Copy-Item $fp.FullName "$out/Tools/ffprobe.exe" -Force
@@ -105,23 +119,23 @@ jobs:
           Write-Host "ffmpeg_size=$ffSize"
           Write-Host "ffprobe_size=$fpSize"
 
-      - name: Run V4 ledger capability privacy and real-video regression
+      - name: Run V4 page-native ledger privacy and real-video regression
         shell: pwsh
         run: |
-          $out='src/AI-Video-Hub-v4.0.0-internal-a/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
+          $out='src/AI-Video-Hub-v4.0.0-internal-b/Tests/P0SelfTest/bin/Release/net8.0-windows/win-x64'
           & "$out/P0SelfTest.exe" --video-test
           if ($LASTEXITCODE -ne 0) { throw "V4 self-test failed: $LASTEXITCODE" }
 
       - name: Publish V4 Windows x64 internal build
         shell: pwsh
         run: |
-          $src='src/AI-Video-Hub-v4.0.0-internal-a'
+          $src='src/AI-Video-Hub-v4.0.0-internal-b'
           dotnet publish "$src/AI.VideoHub.V3.csproj" -c Release -r win-x64 --self-contained true --no-restore -o dist/v4
           if (!(Test-Path 'dist/v4/AI.VideoHub.V4.exe')) { throw 'V4 executable missing after publish' }
           if (!(Test-Path 'dist/v4/VERSION.json')) { throw 'VERSION.json missing after publish' }
           $version=Get-Content 'dist/v4/VERSION.json' -Raw
-          if (-not $version.Contains('4.0.0-internal-a')) { throw 'Unexpected V4 version metadata' }
-          Write-Host 'PASS: V4 publish assembled. Internal build is intentionally not uploaded to users.'
+          if (-not $version.Contains('4.0.0-internal-b')) { throw 'Unexpected V4 version metadata' }
+          Write-Host 'PASS: V4 Internal B publish assembled. Internal build is intentionally not uploaded to users.'
 
       - name: Desktop startup smoke test
         shell: pwsh
@@ -136,7 +150,8 @@ jobs:
       - name: Internal release gate
         shell: pwsh
         run: |
-          Write-Host 'V4 INTERNAL A PASS'
-          Write-Host 'Scope: per-task ledger, dynamic duration capability registry, observe-only runtime evidence, explicit-original resolver integration, redacted diagnostics.'
-          Write-Host 'NOT CERTIFIED: real Dola program-side 10s submission, 15s/30s generation, online original-media retrieval.'
-          Write-Host 'User artifact intentionally suppressed until online P0 is genuinely proven.'
+          Write-Host 'V4 INTERNAL B OFFLINE PASS'
+          Write-Host 'Scope: A foundation + visible page-native 10s control path + nonce prepare/click gate + real task identity wait + prompt-redacted diagnostics.'
+          Write-Host 'Submission code does not replay HTTP and does not read cookies/storage/private signatures.'
+          Write-Host 'NOT CERTIFIED: authenticated online Dola 10s completion, 15s/30s generation, online original-media retrieval.'
+          Write-Host 'User artifact intentionally suppressed until final online P0 acceptance.'
