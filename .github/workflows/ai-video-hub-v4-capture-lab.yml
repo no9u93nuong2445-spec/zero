@@ -60,18 +60,21 @@ jobs:
           dotnet restore ai-video-hub-v4-capture-lab/Tests/CdpSmoke/CdpSmoke.csproj
           dotnet build ai-video-hub-v4-capture-lab/Tests/CdpSmoke/CdpSmoke.csproj -c Release --no-restore
 
-      - name: Verify localhost CDP attach against Edge
+      - name: Verify localhost CDP transport
         shell: pwsh
         run: |
-          $edgeCandidates = @(
+          $browserCandidates = @(
             "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
-            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+            "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+            "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe"
           )
-          $edge = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $edge) { throw 'Microsoft Edge not found on runner' }
+          $browser = $browserCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $browser) { throw 'No Chromium browser found on runner for CDP smoke test' }
+          Write-Host "cdp_browser=$browser"
           $port = 9333
-          $profile = Join-Path $env:RUNNER_TEMP 'aivh-v4-cdp-edge-profile'
-          $p = Start-Process -FilePath $edge -ArgumentList "--headless=new --disable-gpu --remote-debugging-port=$port --remote-debugging-address=127.0.0.1 --user-data-dir=`"$profile`" about:blank" -PassThru
+          $profile = Join-Path $env:RUNNER_TEMP 'aivh-v4-cdp-profile'
+          $p = Start-Process -FilePath $browser -ArgumentList "--headless=new --disable-gpu --remote-debugging-port=$port --remote-debugging-address=127.0.0.1 --user-data-dir=`"$profile`" about:blank" -PassThru
           try {
             dotnet run --project ai-video-hub-v4-capture-lab/Tests/CdpSmoke/CdpSmoke.csproj -c Release --no-build -- $port
             if ($LASTEXITCODE -ne 0) { throw "CDP smoke failed: $LASTEXITCODE" }
