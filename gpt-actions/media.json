@@ -2,16 +2,16 @@
   "openapi": "3.1.0",
   "info": {
     "title": "彼岸 AI 媒体任务网关",
-    "version": "2.6.0",
-    "description": "通过 GitHub repository_dispatch 提交 Google 语音、音乐、视频任务，刷新已过期的匿名下载链接，并通过持久状态账本查询结果。"
+    "version": "2.9.0",
+    "description": "通过 GitHub repository_dispatch 提交 Google 语音、音乐、视频任务，并通过持久状态账本查询结果。优先公开 Release 原文件，始终保留 Artifact ZIP 兜底；不再使用私有 signed URL 或 Cloudflare。"
   },
   "servers": [{"url": "https://api.github.com"}],
   "paths": {
     "/repos/no9u93nuong2445-spec/doubao-tts-bridge/dispatches": {
       "post": {
         "operationId": "dispatchMediaJob",
-        "summary": "提交 Google 媒体任务或刷新已有媒体下载签名",
-        "description": "google_tts/google_music/google_video 会创建新媒体；media_download_refresh 只重新签发已有私有 Release Asset 的匿名下载 URL，不调用 Gemini/Lyria/Veo，并复用原 request_id。HTTP 204/空正文代表 GitHub 已接受。",
+        "summary": "提交 Google 媒体生成任务",
+        "description": "只允许 google_tts/google_music/google_video。HTTP 204/空正文表示 GitHub 已接受。同一个 request_id 绝不能自动重复提交。",
         "requestBody": {
           "required": true,
           "content": {
@@ -22,7 +22,7 @@
                 "properties": {
                   "event_type": {
                     "type": "string",
-                    "enum": ["google_tts", "google_music", "google_video", "media_download_refresh"]
+                    "enum": ["google_tts", "google_music", "google_video"]
                   },
                   "client_payload": {"$ref": "#/components/schemas/MediaPayload"}
                 }
@@ -42,7 +42,7 @@
       "get": {
         "operationId": "getMediaStatus",
         "summary": "查询媒体任务持久状态",
-        "description": "只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。若 success 状态 direct_url 已过期或将在 5 分钟内过期，调用 dispatchMediaJob(event_type=media_download_refresh, client_payload.request_id=原 request_id) 自动续签，再查询同一状态；续签绝不重新生成媒体。",
+        "description": "只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。status=success 后优先提供 direct_url；若 direct_url 为空，提供 artifact_zip_url 作为 ZIP 下载入口。下载问题绝不是重新生成媒体的理由。",
         "parameters": [
           {
             "name": "path",
@@ -88,7 +88,7 @@
           "request_id": {
             "type": "string",
             "pattern": "^[A-Za-z0-9._-]{4,100}$",
-            "description": "新生成使用唯一 ID；media_download_refresh 必须复用原媒体 request_id。"
+            "description": "每个新的真实生成任务使用唯一 ID；同一 request_id 不得重复提交生成。"
           },
           "text": {"type": "string", "maxLength": 12000},
           "voice": {"type": "string"},
