@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "彼岸 AI 媒体任务网关",
-    "version": "2.9.0",
-    "description": "通过 GitHub repository_dispatch 提交 Google 语音、音乐、视频任务，并通过持久状态账本查询结果。优先公开 Release 原文件，始终保留 Artifact ZIP 兜底；不再使用私有 signed URL 或 Cloudflare。"
+    "version": "2.10.0",
+    "description": "通过 GitHub repository_dispatch 提交 Google 语音、音乐、视频任务，查询持久状态，并使用现有 GitHub PAT 下载私有 Actions Artifact ZIP。配合 Code Interpreter/Data Analysis，在 ChatGPT 内解压并返回原始 WAV/MP3/MP4 附件；不需要 Cloudflare、Drive、公开仓库或 signed URL。"
   },
   "servers": [{"url": "https://api.github.com"}],
   "paths": {
@@ -20,10 +20,7 @@
                 "type": "object",
                 "required": ["event_type", "client_payload"],
                 "properties": {
-                  "event_type": {
-                    "type": "string",
-                    "enum": ["google_tts", "google_music", "google_video"]
-                  },
+                  "event_type": {"type": "string", "enum": ["google_tts", "google_music", "google_video"]},
                   "client_payload": {"$ref": "#/components/schemas/MediaPayload"}
                 }
               }
@@ -42,38 +39,39 @@
       "get": {
         "operationId": "getMediaStatus",
         "summary": "查询媒体任务持久状态",
-        "description": "只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。status=success 后优先提供 direct_url；若 direct_url 为空，提供 artifact_zip_url 作为 ZIP 下载入口。下载问题绝不是重新生成媒体的理由。",
+        "description": "只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。status=success 且 artifact_id 存在时，优先调用 downloadMediaArtifact，把 ZIP 取进 ChatGPT 后用 Code Interpreter/Data Analysis 解压 file_name 指定的原始媒体。",
         "parameters": [
-          {
-            "name": "path",
-            "in": "query",
-            "required": true,
-            "schema": {"type": "string", "pattern": "^\\.gpt-media-status/[A-Za-z0-9._-]{4,100}\\.json$"}
-          },
-          {
-            "name": "sha",
-            "in": "query",
-            "required": false,
-            "schema": {"type": "string", "default": "main"}
-          },
-          {
-            "name": "per_page",
-            "in": "query",
-            "required": false,
-            "schema": {"type": "integer", "minimum": 1, "maximum": 1, "default": 1}
-          }
+          {"name": "path", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^\\.gpt-media-status/[A-Za-z0-9._-]{4,100}\\.json$"}},
+          {"name": "sha", "in": "query", "required": false, "schema": {"type": "string", "default": "main"}},
+          {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1, "default": 1}}
         ],
         "responses": {
           "200": {
             "description": "状态文件相关的最近提交。",
-            "content": {
-              "application/json": {
-                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/StatusCommit"}}
-              }
-            }
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/StatusCommit"}}}}
           },
           "401": {"description": "GitHub PAT 无效。"},
           "403": {"description": "GitHub PAT 权限不足。"}
+        }
+      }
+    },
+    "/repos/no9u93nuong2445-spec/doubao-tts-bridge/actions/artifacts/{artifact_id}/zip": {
+      "get": {
+        "operationId": "downloadMediaArtifact",
+        "summary": "下载已生成媒体的 GitHub Actions Artifact ZIP",
+        "description": "只读下载，不调用媒体 provider，不创建新 request_id。使用状态里的 artifact_id。GitHub 可能先返回 302；客户端应跟随重定向，并把最终 application/zip 作为文件交给 ChatGPT。",
+        "parameters": [
+          {"name": "artifact_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact ZIP 文件内容。",
+            "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}
+          },
+          "302": {"description": "GitHub 返回临时归档重定向；Action 客户端应跟随重定向。"},
+          "401": {"description": "GitHub PAT 无效。"},
+          "403": {"description": "GitHub PAT 缺少 Actions Read 权限。"},
+          "404": {"description": "Artifact 不存在或已过期。"}
         }
       }
     }
@@ -85,11 +83,7 @@
         "type": "object",
         "required": ["request_id"],
         "properties": {
-          "request_id": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9._-]{4,100}$",
-            "description": "每个新的真实生成任务使用唯一 ID；同一 request_id 不得重复提交生成。"
-          },
+          "request_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{4,100}$", "description": "每个新的真实生成任务使用唯一 ID；同一 request_id 不得重复提交生成。"},
           "text": {"type": "string", "maxLength": 12000},
           "voice": {"type": "string"},
           "style": {"type": "string"},
@@ -125,15 +119,13 @@
           "commit": {
             "type": "object",
             "properties": {
-              "message": {"type": "string"},
+              "message": {"type": "string", "description": "成功状态应包含 artifact_id、artifact_zip_url、file_name、bytes、sha256。"},
               "author": {"type": "object", "properties": {"date": {"type": "string"}}}
             }
           }
         }
       }
     },
-    "securitySchemes": {
-      "bearerAuth": {"type": "http", "scheme": "bearer"}
-    }
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}
   }
 }
