@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: 彼岸 AI 媒体桥接器 GitHub Actions
-  version: 2.6.0
-  description: 自定义 GPT 用于提交 Google 语音、音乐和视频任务、刷新已过期的匿名下载链接，并通过持久状态账本查询结果。不需要 GitHub Issues 权限。
+  version: 2.9.0
+  description: 自定义 GPT 用于提交 Google 语音、音乐和视频任务，并通过持久状态账本查询结果。交付优先使用公开 Release 原始文件；始终保留 GitHub Actions Artifact ZIP 兜底。不再使用私有 Release 临时 signed URL，也不需要 Cloudflare。
 servers:
   - url: https://api.github.com
 
@@ -10,8 +10,8 @@ paths:
   /repos/no9u93nuong2445-spec/doubao-tts-bridge/dispatches:
     post:
       operationId: dispatchMediaJob
-      summary: 提交一个 Google 媒体任务或刷新已有媒体的下载签名
-      description: GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且没有正文。google_tts/google_music/google_video 会创建新的媒体生成任务；media_download_refresh 只对已经生成成功的私有 Release Asset 重新签发匿名下载 URL，绝不会调用 Gemini/Lyria/Veo，也不得创建新的 request_id。
+      summary: 提交一个 Google 媒体生成任务
+      description: GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且没有正文。只允许 google_tts/google_music/google_video。创建型媒体请求绝不能自动重试；同一个 request_id 只提交一次。
       requestBody:
         required: true
         content:
@@ -22,12 +22,11 @@ paths:
               properties:
                 event_type:
                   type: string
-                  enum: [google_tts, google_music, google_video, media_download_refresh]
+                  enum: [google_tts, google_music, google_video]
                 client_payload:
                   $ref: '#/components/schemas/MediaPayload'
       responses:
-        '204':
-          description: GitHub 已接受任务。生成任务继续用 getMediaStatus 查询；下载刷新任务也继续查询同一个 request_id，绝不能重新生成媒体。
+        '204': {description: GitHub 已接受生成任务。继续用 getMediaStatus 查询同一个 request_id，绝不能重复提交。}
         '401': {description: GitHub PAT 无效。}
         '403': {description: GitHub PAT 权限不足。}
         '422': {description: 请求参数无效。}
@@ -36,14 +35,12 @@ paths:
     get:
       operationId: getMediaStatus
       summary: 查询一个媒体任务的持久状态
-      description: 只读查询。使用 path=.gpt-media-status/{request_id}.json 和 sha=main。返回数组第一项的 commit.message，格式为 GPT_MEDIA_STATUS 后跟紧凑 JSON。若 success 状态的 direct_url 已过期或即将在 5 分钟内过期，调用 dispatchMediaJob(event_type=media_download_refresh, client_payload.request_id=原 request_id) 自动续签，再重新查询同一个状态；下载续签绝不重新调用媒体模型。
+      description: 只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。status=success 后优先提供 direct_url；若 direct_url 为空，则提供 artifact_zip_url 作为已验证的 ZIP 下载入口。下载问题绝不是重新生成媒体的理由。
       parameters:
         - name: path
           in: query
           required: true
-          schema:
-            type: string
-            pattern: '^\.gpt-media-status/[A-Za-z0-9._-]{4,100}\.json$'
+          schema: {type: string, pattern: '^\.gpt-media-status/[A-Za-z0-9._-]{4,100}\.json$'}
         - name: sha
           in: query
           required: false
@@ -54,7 +51,7 @@ paths:
           schema: {type: integer, minimum: 1, maximum: 1, default: 1}
       responses:
         '200':
-          description: 与该状态文件相关的最近提交；通常只取第一项。
+          description: 状态文件相关的最近提交。
           content:
             application/json:
               schema:
@@ -75,7 +72,7 @@ components:
         request_id:
           type: string
           pattern: '^[A-Za-z0-9._-]{4,100}$'
-          description: 新的真实生成使用唯一 ID；media_download_refresh 必须复用原媒体的 request_id，绝不能创建新 ID。
+          description: 每个新的真实生成任务使用唯一 ID；同一 request_id 不得重复提交生成。
         text: {type: string, maxLength: 12000}
         voice: {type: string}
         style: {type: string}
