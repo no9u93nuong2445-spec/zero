@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: 彼岸 AI 媒体桥接器 GitHub Actions
-  version: 2.1.0
-  description: 自定义 GPT 用于提交 Google 语音、音乐和视频任务，并查询 GitHub Actions 状态。支持模型预设和手动指定模型。
+  version: 2.6.0
+  description: 自定义 GPT 用于提交 Google 语音、音乐和视频任务、刷新已过期的匿名下载链接，并通过持久状态账本查询结果。不需要 GitHub Issues 权限。
 servers:
   - url: https://api.github.com
 
@@ -10,8 +10,8 @@ paths:
   /repos/no9u93nuong2445-spec/doubao-tts-bridge/dispatches:
     post:
       operationId: dispatchMediaJob
-      summary: 提交一个 Google 媒体生成任务
-      description: GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且没有正文。204/空响应代表已接受，不得因此重复提交同一个 request_id。
+      summary: 提交一个 Google 媒体任务或刷新已有媒体的下载签名
+      description: GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且没有正文。google_tts/google_music/google_video 会创建新的媒体生成任务；media_download_refresh 只对已经生成成功的私有 Release Asset 重新签发匿名下载 URL，绝不会调用 Gemini/Lyria/Veo，也不得创建新的 request_id。
       requestBody:
         required: true
         content:
@@ -22,61 +22,46 @@ paths:
               properties:
                 event_type:
                   type: string
-                  enum: [google_tts, google_music, google_video]
+                  enum: [google_tts, google_music, google_video, media_download_refresh]
                 client_payload:
                   $ref: '#/components/schemas/MediaPayload'
       responses:
         '204':
-          description: GitHub 已接受任务。继续用 listMediaRuns 查询，不要重复 POST。
+          description: GitHub 已接受任务。生成任务继续用 getMediaStatus 查询；下载刷新任务也继续查询同一个 request_id，绝不能重新生成媒体。
         '401': {description: GitHub PAT 无效。}
         '403': {description: GitHub PAT 权限不足。}
         '422': {description: 请求参数无效。}
 
-  /repos/no9u93nuong2445-spec/doubao-tts-bridge/actions/workflows/gpt_media_dispatch.yml/runs:
+  /repos/no9u93nuong2445-spec/doubao-tts-bridge/commits:
     get:
-      operationId: listMediaRuns
-      summary: 查询最近的自定义 GPT 媒体任务
+      operationId: getMediaStatus
+      summary: 查询一个媒体任务的持久状态
+      description: 只读查询。使用 path=.gpt-media-status/{request_id}.json 和 sha=main。返回数组第一项的 commit.message，格式为 GPT_MEDIA_STATUS 后跟紧凑 JSON。若 success 状态的 direct_url 已过期或即将在 5 分钟内过期，调用 dispatchMediaJob(event_type=media_download_refresh, client_payload.request_id=原 request_id) 自动续签，再重新查询同一个状态；下载续签绝不重新调用媒体模型。
       parameters:
-        - name: event
+        - name: path
           in: query
-          required: false
-          schema: {type: string, default: repository_dispatch}
-        - name: branch
+          required: true
+          schema:
+            type: string
+            pattern: '^\.gpt-media-status/[A-Za-z0-9._-]{4,100}\.json$'
+        - name: sha
           in: query
           required: false
           schema: {type: string, default: main}
         - name: per_page
           in: query
           required: false
-          schema: {type: integer, minimum: 1, maximum: 20, default: 10}
+          schema: {type: integer, minimum: 1, maximum: 1, default: 1}
       responses:
         '200':
-          description: 最近的工作流运行列表。
+          description: 与该状态文件相关的最近提交；通常只取第一项。
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  total_count: {type: integer}
-                  workflow_runs:
-                    type: array
-                    items: {$ref: '#/components/schemas/WorkflowRun'}
-
-  /repos/no9u93nuong2445-spec/doubao-tts-bridge/actions/runs/{run_id}:
-    get:
-      operationId: getMediaRun
-      summary: 查询指定媒体任务状态
-      parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: integer}
-      responses:
-        '200':
-          description: 工作流运行状态。
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/WorkflowRun'}
+                type: array
+                items: {$ref: '#/components/schemas/StatusCommit'}
+        '401': {description: GitHub PAT 无效。}
+        '403': {description: GitHub PAT 权限不足。}
 
 security:
   - bearerAuth: []
@@ -90,19 +75,14 @@ components:
         request_id:
           type: string
           pattern: '^[A-Za-z0-9._-]{4,100}$'
+          description: 新的真实生成使用唯一 ID；media_download_refresh 必须复用原媒体的 request_id，绝不能创建新 ID。
         text: {type: string, maxLength: 12000}
         voice: {type: string}
         style: {type: string}
-        tts_mode:
-          type: string
-          enum: [latest, fast, pro]
+        tts_mode: {type: string, enum: [latest, fast, pro]}
         prompt: {type: string, maxLength: 12000}
-        mode:
-          type: string
-          enum: [clip, pro]
-        video_mode:
-          type: string
-          enum: [omni, veo, veo_fast, veo_lite]
+        mode: {type: string, enum: [clip, pro]}
+        video_mode: {type: string, enum: [omni, veo, veo_fast, veo_lite]}
         model:
           type: string
           enum:
@@ -115,28 +95,24 @@ components:
             - veo-3.1-generate-preview
             - veo-3.1-fast-generate-preview
             - veo-3.1-lite-generate-preview
-        aspect_ratio:
-          type: string
-          enum: ['16:9', '9:16']
-        duration_seconds:
-          type: integer
-          minimum: 3
-          maximum: 10
-        resolution:
-          type: string
-          enum: [720p, 1080p, 4k]
+        aspect_ratio: {type: string, enum: ['16:9', '9:16']}
+        duration_seconds: {type: integer, minimum: 3, maximum: 10}
+        resolution: {type: string, enum: [720p, 1080p, 4k]}
         output_name: {type: string}
 
-    WorkflowRun:
+    StatusCommit:
       type: object
       properties:
-        id: {type: integer}
-        display_title: {type: string}
-        status: {type: string}
-        conclusion: {type: string}
+        sha: {type: string}
         html_url: {type: string}
-        created_at: {type: string}
-        updated_at: {type: string}
+        commit:
+          type: object
+          properties:
+            message: {type: string}
+            author:
+              type: object
+              properties:
+                date: {type: string}
 
   securitySchemes:
     bearerAuth:
