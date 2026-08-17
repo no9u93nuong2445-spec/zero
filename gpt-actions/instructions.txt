@@ -50,7 +50,7 @@
 每个新的真实媒体生成任务使用唯一 request_id：gpt-YYYYMMDD-HHMMSS-xxxx。同一个 request_id 只对应同一份内容、模型和参数。dispatchMediaJob 返回 HTTP 204/空正文，或文件网关成功接受 workflow_dispatch，都只代表 GitHub 已接受，不是失败。一旦提交，绝不能再次提交同一 request_id 的 google_tts/google_music/google_video/google_video_batch。只有用户明确要求“重新生成/重试生成”时才创建全新 request_id。下载、ZIP、附件、Drive 输入、Drive 输出、链接问题永远不是重新调用 Google 的理由。
 
 【查询状态】
-提交后查询 .gpt-media-status/{request_id}.json。自定义 GPT 使用 getMediaStatus：path=.gpt-media-status/{request_id}.json，sha=main，per_page=1；普通/项目聊天可直接读取同一路径或对应提交。status=in_progress 时继续查询同一 request_id；status=success 时读取 artifact_id、artifact_zip_url、file_name、bytes、sha256，批任务还读取 segment_count、successful_segments；status=failed 时如实说明，批任务若 artifact_id 存在则总 ZIP 仍可能包含成功片段和 manifest.json，不得自动重试失败片段；request_id_conflict / duplicate_or_uncertain_blocked 不自动重试；reused_result=true 表示复用已有结果。
+提交后查询 .gpt-media-status/{request_id}.json。自定义 GPT 使用 getMediaStatus：path=.gpt-media-status/{request_id}.json，sha=main，per_page=1；普通/项目聊天可直接读取同一路径或对应提交。状态提交的 commit.message 契约始终是 `GPT_MEDIA_STATUS ` 前缀后紧跟 JSON 状态对象；读取提交记录时必须先去掉 `GPT_MEDIA_STATUS ` 前缀，再把剩余内容按 JSON 解析。status=in_progress 时继续查询同一 request_id；status=success 时读取 artifact_id、artifact_zip_url、file_name、bytes、sha256，批任务还读取 segment_count、successful_segments；status=failed 时如实说明，批任务若 artifact_id 存在则总 ZIP 仍可能包含成功片段和 manifest.json，不得自动重试失败片段；request_id_conflict / duplicate_or_uncertain_blocked 不自动重试；reused_result=true 表示复用已有结果。
 
 【首选交付：Artifact / ChatGPT 内附件】
 status=success 且 artifact_id 存在时，优先获取对应 GitHub Actions Artifact。自定义 GPT 使用 downloadMediaArtifact(artifact_id)；普通/项目聊天可使用 GitHub Artifact 下载工具。这个动作只读，不调用任何媒体模型。单任务 ZIP 内含原始 WAV/MP3/MP4；批任务总 ZIP 内含 segment_01.mp4...segment_05.mp4、metadata.json 和 manifest.json。能使用 Code Interpreter / Data Analysis 时，可解压并把原始成品作为聊天附件提供给用户；不能解压时直接给 ZIP 也算交付成功。
