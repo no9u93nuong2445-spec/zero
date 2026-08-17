@@ -1,17 +1,16 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "彼岸 AI 媒体任务网关",
-    "version": "2.10.0",
-    "description": "通过 GitHub repository_dispatch 提交 Google 语音、音乐、视频任务，查询持久状态，并使用现有 GitHub PAT 下载私有 Actions Artifact ZIP。配合 Code Interpreter/Data Analysis，在 ChatGPT 内解压并返回原始 WAV/MP3/MP4 附件；不需要 Cloudflare、Drive、公开仓库或 signed URL。"
+    "title": "彼岸 AI 媒体桥接器 GitHub Actions",
+    "version": "3.0.0",
+    "description": "提交 Google 语音、音乐、Omni/Veo 视频任务，支持 Omni 多图参考、首帧图和最多5段并行视频批任务；通过持久状态账本查询结果，并下载 Actions Artifact ZIP。"
   },
   "servers": [{"url": "https://api.github.com"}],
   "paths": {
     "/repos/no9u93nuong2445-spec/doubao-tts-bridge/dispatches": {
       "post": {
         "operationId": "dispatchMediaJob",
-        "summary": "提交 Google 媒体生成任务",
-        "description": "只允许 google_tts/google_music/google_video。HTTP 204/空正文表示 GitHub 已接受。同一个 request_id 绝不能自动重复提交。",
+        "summary": "提交一个 Google 媒体生成任务",
         "requestBody": {
           "required": true,
           "content": {
@@ -20,7 +19,7 @@
                 "type": "object",
                 "required": ["event_type", "client_payload"],
                 "properties": {
-                  "event_type": {"type": "string", "enum": ["google_tts", "google_music", "google_video"]},
+                  "event_type": {"type": "string", "enum": ["google_tts", "google_music", "google_video", "google_video_batch"]},
                   "client_payload": {"$ref": "#/components/schemas/MediaPayload"}
                 }
               }
@@ -28,7 +27,7 @@
           }
         },
         "responses": {
-          "204": {"description": "GitHub 已接受。继续用 getMediaStatus 查询同一个 request_id。"},
+          "204": {"description": "GitHub 已接受任务；继续查询同一个 request_id，禁止自动重复提交。"},
           "401": {"description": "GitHub PAT 无效。"},
           "403": {"description": "GitHub PAT 权限不足。"},
           "422": {"description": "请求参数无效。"}
@@ -38,18 +37,14 @@
     "/repos/no9u93nuong2445-spec/doubao-tts-bridge/commits": {
       "get": {
         "operationId": "getMediaStatus",
-        "summary": "查询媒体任务持久状态",
-        "description": "只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。status=success 且 artifact_id 存在时，优先调用 downloadMediaArtifact，把 ZIP 取进 ChatGPT 后用 Code Interpreter/Data Analysis 解压 file_name 指定的原始媒体。",
+        "summary": "查询媒体任务的持久状态",
         "parameters": [
           {"name": "path", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^\\.gpt-media-status/[A-Za-z0-9._-]{4,100}\\.json$"}},
           {"name": "sha", "in": "query", "required": false, "schema": {"type": "string", "default": "main"}},
           {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1, "default": 1}}
         ],
         "responses": {
-          "200": {
-            "description": "状态文件相关的最近提交。",
-            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/StatusCommit"}}}}
-          },
+          "200": {"description": "状态文件相关的最近提交。"},
           "401": {"description": "GitHub PAT 无效。"},
           "403": {"description": "GitHub PAT 权限不足。"}
         }
@@ -59,16 +54,10 @@
       "get": {
         "operationId": "downloadMediaArtifact",
         "summary": "下载已生成媒体的 GitHub Actions Artifact ZIP",
-        "description": "只读下载，不调用媒体 provider，不创建新 request_id。使用状态里的 artifact_id。GitHub 可能先返回 302；客户端应跟随重定向，并把最终 application/zip 作为文件交给 ChatGPT。",
-        "parameters": [
-          {"name": "artifact_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}
-        ],
+        "parameters": [{"name": "artifact_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}],
         "responses": {
-          "200": {
-            "description": "Artifact ZIP 文件内容。",
-            "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}
-          },
-          "302": {"description": "GitHub 返回临时归档重定向；Action 客户端应跟随重定向。"},
+          "200": {"description": "Artifact ZIP 文件内容。", "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}},
+          "302": {"description": "GitHub 临时归档重定向；客户端应跟随重定向。"},
           "401": {"description": "GitHub PAT 无效。"},
           "403": {"description": "GitHub PAT 缺少 Actions Read 权限。"},
           "404": {"description": "Artifact 不存在或已过期。"}
@@ -79,11 +68,26 @@
   "security": [{"bearerAuth": []}],
   "components": {
     "schemas": {
+      "VideoSegment": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": {"type": "string", "maxLength": 12000},
+          "video_mode": {"type": "string", "enum": ["omni", "veo", "veo_fast", "veo_lite"]},
+          "video_task": {"type": "string", "enum": ["text_to_video", "image_to_video", "reference_to_video", "edit"]},
+          "first_frame_drive_file_id": {"type": "string"},
+          "reference_drive_file_ids": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
+          "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16"]},
+          "duration_seconds": {"type": "integer", "minimum": 3, "maximum": 10},
+          "resolution": {"type": "string", "enum": ["720p", "1080p", "4k"]},
+          "output_name": {"type": "string"}
+        }
+      },
       "MediaPayload": {
         "type": "object",
         "required": ["request_id"],
         "properties": {
-          "request_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{4,100}$", "description": "每个新的真实生成任务使用唯一 ID；同一 request_id 不得重复提交生成。"},
+          "request_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{4,100}$"},
           "text": {"type": "string", "maxLength": 12000},
           "voice": {"type": "string"},
           "style": {"type": "string"},
@@ -91,20 +95,12 @@
           "prompt": {"type": "string", "maxLength": 12000},
           "mode": {"type": "string", "enum": ["clip", "pro"]},
           "video_mode": {"type": "string", "enum": ["omni", "veo", "veo_fast", "veo_lite"]},
-          "model": {
-            "type": "string",
-            "enum": [
-              "gemini-3.1-flash-tts-preview",
-              "gemini-2.5-flash-preview-tts",
-              "gemini-2.5-pro-preview-tts",
-              "lyria-3-clip-preview",
-              "lyria-3-pro-preview",
-              "gemini-omni-flash-preview",
-              "veo-3.1-generate-preview",
-              "veo-3.1-fast-generate-preview",
-              "veo-3.1-lite-generate-preview"
-            ]
-          },
+          "video_task": {"type": "string", "enum": ["text_to_video", "image_to_video", "reference_to_video", "edit"]},
+          "first_frame_drive_file_id": {"type": "string"},
+          "reference_drive_file_ids": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
+          "shared_reference_drive_file_ids": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
+          "segments": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"$ref": "#/components/schemas/VideoSegment"}},
+          "model": {"type": "string", "enum": ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts", "lyria-3-clip-preview", "lyria-3-pro-preview", "gemini-omni-flash-preview", "veo-3.1-generate-preview", "veo-3.1-fast-generate-preview", "veo-3.1-lite-generate-preview"]},
           "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16"]},
           "duration_seconds": {"type": "integer", "minimum": 3, "maximum": 10},
           "resolution": {"type": "string", "enum": ["720p", "1080p", "4k"]},
@@ -116,13 +112,7 @@
         "properties": {
           "sha": {"type": "string"},
           "html_url": {"type": "string"},
-          "commit": {
-            "type": "object",
-            "properties": {
-              "message": {"type": "string", "description": "成功状态应包含 artifact_id、artifact_zip_url、file_name、bytes、sha256。"},
-              "author": {"type": "object", "properties": {"date": {"type": "string"}}}
-            }
-          }
+          "commit": {"type": "object", "properties": {"message": {"type": "string"}}}
         }
       }
     },

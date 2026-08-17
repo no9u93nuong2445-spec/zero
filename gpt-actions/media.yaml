@@ -1,17 +1,16 @@
 openapi: 3.1.0
 info:
   title: 彼岸 AI 媒体桥接器 GitHub Actions
-  version: 2.10.0
-  description: 自定义 GPT 用于提交 Google 语音、音乐和视频任务、查询持久状态，并使用现有 GitHub PAT 从私有 Actions Artifact 取回 ZIP 文件。配合 Code Interpreter/Data Analysis，可在 ChatGPT 内解压并把 WAV/MP3/MP4 作为聊天附件交付。无需 Cloudflare、Drive、公开仓库或 signed URL。
+  version: 3.0.0
+  description: 提交 Google 语音、音乐、Omni/Veo 视频任务，支持 Omni 多图参考、首帧图和最多5段并行视频批任务；通过持久状态账本查询结果，并使用现有 GitHub PAT 下载 Actions Artifact ZIP。无需 Cloudflare 或私有 Release signed URL。
 servers:
   - url: https://api.github.com
-
 paths:
   /repos/no9u93nuong2445-spec/doubao-tts-bridge/dispatches:
     post:
       operationId: dispatchMediaJob
       summary: 提交一个 Google 媒体生成任务
-      description: GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且没有正文。只允许 google_tts/google_music/google_video。创建型媒体请求绝不能自动重试；同一个 request_id 只提交一次。
+      description: GitHub 成功接收 repository_dispatch 时通常返回 HTTP 204 且没有正文。允许 google_tts/google_music/google_video/google_video_batch。创建型媒体请求绝不能自动重试；同一个 request_id 只提交一次。
       requestBody:
         required: true
         content:
@@ -22,20 +21,19 @@ paths:
               properties:
                 event_type:
                   type: string
-                  enum: [google_tts, google_music, google_video]
+                  enum: [google_tts, google_music, google_video, google_video_batch]
                 client_payload:
                   $ref: '#/components/schemas/MediaPayload'
       responses:
-        '204': {description: GitHub 已接受生成任务。继续用 getMediaStatus 查询同一个 request_id，绝不能重复提交。}
+        '204': {description: GitHub 已接受任务。继续用 getMediaStatus 查询同一个 request_id，绝不能重复提交。}
         '401': {description: GitHub PAT 无效。}
         '403': {description: GitHub PAT 权限不足。}
         '422': {description: 请求参数无效。}
-
   /repos/no9u93nuong2445-spec/doubao-tts-bridge/commits:
     get:
       operationId: getMediaStatus
-      summary: 查询一个媒体任务的持久状态
-      description: 只读查询 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。status=success 且 artifact_id 存在时，优先调用 downloadMediaArtifact 把 ZIP 取进 ChatGPT，再用 Code Interpreter/Data Analysis 解压出 file_name 指定的原始媒体文件。下载失败绝不是重新生成媒体的理由。
+      summary: 查询媒体任务的持久状态
+      description: 使用 path=.gpt-media-status/{request_id}.json、sha=main、per_page=1。读取第一项 commit.message 中 GPT_MEDIA_STATUS 后面的 JSON。成功且 artifact_id 存在时，调用 downloadMediaArtifact 获取 ZIP。下载问题绝不是重新生成媒体的理由。
       parameters:
         - name: path
           in: query
@@ -50,21 +48,14 @@ paths:
           required: false
           schema: {type: integer, minimum: 1, maximum: 1, default: 1}
       responses:
-        '200':
-          description: 状态文件相关的最近提交。
-          content:
-            application/json:
-              schema:
-                type: array
-                items: {$ref: '#/components/schemas/StatusCommit'}
+        '200': {description: 与状态文件相关的最近提交。}
         '401': {description: GitHub PAT 无效。}
         '403': {description: GitHub PAT 权限不足。}
-
   /repos/no9u93nuong2445-spec/doubao-tts-bridge/actions/artifacts/{artifact_id}/zip:
     get:
       operationId: downloadMediaArtifact
       summary: 下载已生成媒体的 GitHub Actions Artifact ZIP
-      description: 只读下载，不调用 Gemini/Lyria/Veo，不创建新 request_id。使用 getMediaStatus 返回的 artifact_id。GitHub 可能先返回 302 到短期归档地址；客户端应跟随重定向并把最终 application/zip 作为文件交给 ChatGPT。随后由 Code Interpreter/Data Analysis 解压并返回 file_name 对应的 WAV/MP3/MP4。
+      description: 只读下载，不调用 Gemini/Lyria/Veo。单视频 ZIP 内含原始 MP4；批任务 ZIP 内含 segment_01.mp4...segment_05.mp4 和 manifest.json。
       parameters:
         - name: artifact_id
           in: path
@@ -75,51 +66,65 @@ paths:
           description: Artifact ZIP 文件内容。
           content:
             application/zip:
-              schema:
-                type: string
-                format: binary
-        '302': {description: GitHub 返回临时归档重定向；Action 客户端应跟随重定向。}
+              schema: {type: string, format: binary}
+        '302': {description: GitHub 临时归档重定向；客户端应跟随重定向。}
         '401': {description: GitHub PAT 无效。}
         '403': {description: GitHub PAT 缺少 Actions Read 权限。}
         '404': {description: Artifact 不存在或已过期。}
-
 security:
   - bearerAuth: []
-
 components:
   schemas:
+    VideoSegment:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: {type: string, maxLength: 12000}
+        video_mode: {type: string, enum: [omni, veo, veo_fast, veo_lite], description: 默认 omni；只有用户明确指定其他模型时再切换。}
+        video_task: {type: string, enum: [text_to_video, image_to_video, reference_to_video, edit]}
+        first_frame_drive_file_id: {type: string, description: 可选分镜/首帧图片的 Google Drive file_id。}
+        reference_drive_file_ids:
+          type: array
+          maxItems: 8
+          items: {type: string}
+        aspect_ratio: {type: string, enum: ['16:9', '9:16']}
+        duration_seconds: {type: integer, minimum: 3, maximum: 10}
+        resolution: {type: string, enum: [720p, 1080p, 4k]}
+        output_name: {type: string}
     MediaPayload:
       type: object
       required: [request_id]
       properties:
-        request_id:
-          type: string
-          pattern: '^[A-Za-z0-9._-]{4,100}$'
-          description: 每个新的真实生成任务使用唯一 ID；同一 request_id 不得重复提交生成。
+        request_id: {type: string, pattern: '^[A-Za-z0-9._-]{4,100}$'}
         text: {type: string, maxLength: 12000}
         voice: {type: string}
         style: {type: string}
         tts_mode: {type: string, enum: [latest, fast, pro]}
         prompt: {type: string, maxLength: 12000}
         mode: {type: string, enum: [clip, pro]}
-        video_mode: {type: string, enum: [omni, veo, veo_fast, veo_lite]}
+        video_mode: {type: string, enum: [omni, veo, veo_fast, veo_lite], description: 默认 omni（gemini-omni-flash-preview）。}
+        video_task: {type: string, enum: [text_to_video, image_to_video, reference_to_video, edit]}
+        first_frame_drive_file_id: {type: string}
+        reference_drive_file_ids:
+          type: array
+          maxItems: 8
+          items: {type: string}
+        shared_reference_drive_file_ids:
+          type: array
+          maxItems: 8
+          items: {type: string}
+        segments:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items: {$ref: '#/components/schemas/VideoSegment'}
         model:
           type: string
-          enum:
-            - gemini-3.1-flash-tts-preview
-            - gemini-2.5-flash-preview-tts
-            - gemini-2.5-pro-preview-tts
-            - lyria-3-clip-preview
-            - lyria-3-pro-preview
-            - gemini-omni-flash-preview
-            - veo-3.1-generate-preview
-            - veo-3.1-fast-generate-preview
-            - veo-3.1-lite-generate-preview
+          enum: [gemini-3.1-flash-tts-preview, gemini-2.5-flash-preview-tts, gemini-2.5-pro-preview-tts, lyria-3-clip-preview, lyria-3-pro-preview, gemini-omni-flash-preview, veo-3.1-generate-preview, veo-3.1-fast-generate-preview, veo-3.1-lite-generate-preview]
         aspect_ratio: {type: string, enum: ['16:9', '9:16']}
         duration_seconds: {type: integer, minimum: 3, maximum: 10}
         resolution: {type: string, enum: [720p, 1080p, 4k]}
         output_name: {type: string}
-
     StatusCommit:
       type: object
       properties:
@@ -128,12 +133,7 @@ components:
         commit:
           type: object
           properties:
-            message: {type: string, description: 成功状态应包含 artifact_id、artifact_zip_url、file_name、bytes、sha256。}
-            author:
-              type: object
-              properties:
-                date: {type: string}
-
+            message: {type: string}
   securitySchemes:
     bearerAuth:
       type: http
