@@ -1,0 +1,10 @@
+{
+  "task_id": "gpt-YYYYMMDD-HHMMSS-xxxx",
+  "type": "video|audio|music|image",
+  "provider": "google|doubao|openai",
+  "input": {},
+  "parameters": {},
+  "output": {},
+  "status": "queued|running|success|failed",
+  "created_at": ""
+}
