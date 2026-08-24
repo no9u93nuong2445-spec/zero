@@ -1,0 +1,10 @@
+name: Archived V4.0.8 Complete Subtitle Removal
+
+on:
+  workflow_dispatch:
+
+jobs:
+  archived:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Archived on the V4.0.9 branch; use the dedicated V4.0.9 simple subtitle workflow.'
