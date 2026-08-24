@@ -10,30 +10,23 @@
       "type": "string",
       "enum": ["google_tts", "google_music", "google_video", "google_video_batch"]
     },
-    "client_payload": {
-      "oneOf": [
-        { "$ref": "#/$defs/TtsPayload" },
-        { "$ref": "#/$defs/MusicPayload" },
-        { "$ref": "#/$defs/VideoPayload" },
-        { "$ref": "#/$defs/VideoBatchPayload" }
-      ]
-    }
+    "client_payload": { "type": "object" }
   },
   "allOf": [
     {
-      "if": { "properties": { "event_type": { "const": "google_tts" } } },
+      "if": { "properties": { "event_type": { "const": "google_tts" } }, "required": ["event_type"] },
       "then": { "properties": { "client_payload": { "$ref": "#/$defs/TtsPayload" } } }
     },
     {
-      "if": { "properties": { "event_type": { "const": "google_music" } } },
+      "if": { "properties": { "event_type": { "const": "google_music" } }, "required": ["event_type"] },
       "then": { "properties": { "client_payload": { "$ref": "#/$defs/MusicPayload" } } }
     },
     {
-      "if": { "properties": { "event_type": { "const": "google_video" } } },
+      "if": { "properties": { "event_type": { "const": "google_video" } }, "required": ["event_type"] },
       "then": { "properties": { "client_payload": { "$ref": "#/$defs/VideoPayload" } } }
     },
     {
-      "if": { "properties": { "event_type": { "const": "google_video_batch" } } },
+      "if": { "properties": { "event_type": { "const": "google_video_batch" } }, "required": ["event_type"] },
       "then": { "properties": { "client_payload": { "$ref": "#/$defs/VideoBatchPayload" } } }
     }
   ],
@@ -103,34 +96,74 @@
         "output_name": { "$ref": "#/$defs/OutputName" }
       }
     },
-    "OmniVideoSettings": {
-      "type": "object",
-      "properties": {
-        "video_mode": { "const": "omni" },
-        "model": { "const": "gemini-omni-flash-preview" },
-        "duration_seconds": { "type": "integer", "minimum": 3, "maximum": 10, "default": 10 },
-        "resolution": { "const": "720p", "default": "720p" }
-      }
+    "VideoProperties": {
+      "request_id": { "$ref": "#/$defs/RequestId" },
+      "prompt": { "type": "string", "minLength": 1, "maxLength": 12000 },
+      "video_mode": { "$ref": "#/$defs/VideoMode" },
+      "model": {
+        "type": "string",
+        "enum": [
+          "gemini-omni-flash-preview",
+          "veo-3.1-generate-preview",
+          "veo-3.1-fast-generate-preview",
+          "veo-3.1-lite-generate-preview"
+        ]
+      },
+      "video_task": { "$ref": "#/$defs/VideoTask" },
+      "first_frame_drive_file_id": { "$ref": "#/$defs/DriveFileId" },
+      "reference_drive_file_ids": { "$ref": "#/$defs/ReferenceIds" },
+      "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16"], "default": "9:16" },
+      "duration_seconds": { "type": "integer" },
+      "resolution": { "type": "string" },
+      "output_name": { "$ref": "#/$defs/OutputName" }
     },
-    "VeoVideoSettings": {
-      "type": "object",
-      "properties": {
-        "video_mode": { "enum": ["veo", "veo_fast"] },
-        "model": { "enum": ["veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"] },
-        "duration_seconds": { "type": "integer", "enum": [4, 6, 8], "default": 8 },
-        "resolution": { "type": "string", "enum": ["720p", "1080p", "4k"], "default": "720p" }
-      }
+    "VideoCapabilityRules": {
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              { "properties": { "video_mode": { "const": "omni" } }, "required": ["video_mode"] },
+              { "not": { "required": ["video_mode"] } }
+            ]
+          },
+          "then": {
+            "properties": {
+              "model": { "const": "gemini-omni-flash-preview" },
+              "duration_seconds": { "type": "integer", "minimum": 3, "maximum": 10, "default": 10 },
+              "resolution": { "const": "720p", "default": "720p" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "video_mode": { "enum": ["veo", "veo_fast"] } }, "required": ["video_mode"] },
+          "then": {
+            "properties": {
+              "model": { "enum": ["veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"] },
+              "duration_seconds": { "type": "integer", "enum": [4, 6, 8], "default": 8 },
+              "resolution": { "type": "string", "enum": ["720p", "1080p", "4k"], "default": "720p" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "video_mode": { "const": "veo_lite" } }, "required": ["video_mode"] },
+          "then": {
+            "properties": {
+              "model": { "const": "veo-3.1-lite-generate-preview" },
+              "duration_seconds": { "type": "integer", "enum": [4, 6, 8], "default": 8 },
+              "resolution": { "type": "string", "enum": ["720p", "1080p"], "default": "720p" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "resolution": { "enum": ["1080p", "4k"] } },
+            "required": ["resolution"]
+          },
+          "then": { "properties": { "duration_seconds": { "const": 8 } } }
+        }
+      ]
     },
-    "VeoLiteVideoSettings": {
-      "type": "object",
-      "properties": {
-        "video_mode": { "const": "veo_lite" },
-        "model": { "const": "veo-3.1-lite-generate-preview" },
-        "duration_seconds": { "type": "integer", "enum": [4, 6, 8], "default": 8 },
-        "resolution": { "type": "string", "enum": ["720p", "1080p"], "default": "720p" }
-      }
-    },
-    "VideoBase": {
+    "VideoPayload": {
       "type": "object",
       "additionalProperties": false,
       "required": ["request_id", "prompt"],
@@ -154,41 +187,8 @@
         "duration_seconds": { "type": "integer" },
         "resolution": { "type": "string" },
         "output_name": { "$ref": "#/$defs/OutputName" }
-      }
-    },
-    "VideoPayload": {
-      "allOf": [
-        { "$ref": "#/$defs/VideoBase" },
-        {
-          "oneOf": [
-            {
-              "if": {
-                "properties": { "video_mode": { "const": "omni" } },
-                "required": ["video_mode"]
-              },
-              "then": { "$ref": "#/$defs/OmniVideoSettings" }
-            },
-            {
-              "if": {
-                "properties": { "video_mode": { "enum": ["veo", "veo_fast"] } },
-                "required": ["video_mode"]
-              },
-              "then": { "$ref": "#/$defs/VeoVideoSettings" }
-            },
-            {
-              "if": {
-                "properties": { "video_mode": { "const": "veo_lite" } },
-                "required": ["video_mode"]
-              },
-              "then": { "$ref": "#/$defs/VeoLiteVideoSettings" }
-            },
-            {
-              "not": { "required": ["video_mode"] },
-              "allOf": [{ "$ref": "#/$defs/OmniVideoSettings" }]
-            }
-          ]
-        }
-      ]
+      },
+      "allOf": [{ "$ref": "#/$defs/VideoCapabilityRules" }]
     },
     "VideoSegment": {
       "type": "object",
@@ -209,11 +209,12 @@
         "video_task": { "$ref": "#/$defs/VideoTask" },
         "first_frame_drive_file_id": { "$ref": "#/$defs/DriveFileId" },
         "reference_drive_file_ids": { "$ref": "#/$defs/ReferenceIds" },
-        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16"] },
+        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16"], "default": "9:16" },
         "duration_seconds": { "type": "integer" },
         "resolution": { "type": "string" },
         "output_name": { "$ref": "#/$defs/OutputName" }
-      }
+      },
+      "allOf": [{ "$ref": "#/$defs/VideoCapabilityRules" }]
     },
     "VideoBatchPayload": {
       "type": "object",
