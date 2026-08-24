@@ -1,4 +1,4 @@
-name: Archived Build JingHua APK
+name: Archived Android 14 Smoke Test
 
 on:
   workflow_dispatch:

@@ -1,0 +1,89 @@
+name: JingHua V4.0.8 Complete Subtitle Removal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  complete-removal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Install video and analysis dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fontconfig fonts-dejavu-core
+          python3 -m pip install --user numpy pillow
+          ffmpeg -version | head -n 1
+
+      - name: Rebuild V4.0.8 from complete Android source
+        run: bash ci/v408-prepare.sh
+
+      - name: Run production Media3 exports on Android 10
+        id: android_export
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none
+          script: timeout 38m bash ci/v408-emulator.sh
+
+      - name: Measure retained subtitle pixels and output integrity
+        id: analyze
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python3 ci/v408-analyze.py | tee v408-results/analyzer-console.txt
+          echo ${PIPESTATUS[0]} > v408-results/analyzer-exit.txt
+          exit 0
+
+      - name: Upload V4.0.8 APK and complete evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.0.8-complete-subtitle-removal
+          path: |
+            v408-results/
+            v408-gradle.log
+            v408-prepare.log
+            v407-gradle.log
+            v407-prepare.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Require strict complete-removal pass
+        shell: bash
+        run: |
+          test -f v408-results/V408_COMPLETE_REMOVAL_REPORT.json
+          python3 - <<'PY'
+          import json
+          report=json.load(open('v408-results/V408_COMPLETE_REMOVAL_REPORT.json', encoding='utf-8'))
+          assert report['full_pass'] is True, report
+          print('JINGHUA_V408_COMPLETE_SUBTITLE_REMOVAL_PASS')
+          PY
