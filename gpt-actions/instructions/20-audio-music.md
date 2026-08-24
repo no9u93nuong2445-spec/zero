@@ -1,15 +1,49 @@
-# Audio and Music Rules
+# V4 Audio and Music Rules
 
-## Audio
+## Google TTS
 
-Handle TTS as an independent media task.
+Event: `google_tts`.
 
-## Music
+Required:
 
-Handle music generation as an independent media task.
+- `request_id`
+- `text`
 
-Rules:
+Defaults:
 
-- Do not automatically combine audio, music and video unless explicitly requested.
-- Keep provider selection separated from user intent.
-- Track every generation through request_id.
+- `voice=Kore`
+- `tts_mode=latest`
+
+Presets:
+
+- latest → `gemini-3.1-flash-tts-preview`
+- fast → `gemini-2.5-flash-preview-tts`
+- pro → `gemini-2.5-pro-preview-tts`
+
+`text` max length: 12000 characters.
+
+## Google Music
+
+Event: `google_music`.
+
+Required:
+
+- `request_id`
+- `prompt`
+
+Defaults:
+
+- `mode=clip`
+
+Presets:
+
+- clip → `lyria-3-clip-preview`
+- pro → `lyria-3-pro-preview`
+
+`prompt` max length: 8000 characters.
+
+Use `pro` when the user explicitly requests a long/full music generation; otherwise keep `clip`.
+
+## Isolation rule
+
+TTS and music never automatically trigger each other or video generation. Each real provider call has its own request_id unless the execution protocol explicitly defines a single batch task of the same media type.

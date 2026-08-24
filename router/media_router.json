@@ -1,18 +1,70 @@
 {
-  "version": "1.0",
+  "version": "4.0.0-rc1",
+  "execution_repository": "no9u93nuong2445-spec/doubao-tts-bridge",
+  "principles": [
+    "intent_first",
+    "provider_second",
+    "no_automatic_cross_media_pipeline",
+    "creation_requests_never_auto_retry",
+    "runtime_registry_is_source_of_truth"
+  ],
   "routes": {
-    "video": {
-      "task_type": "video"
-    },
-    "voice": {
-      "task_type": "audio"
+    "tts": {
+      "event_type": "google_tts",
+      "required": ["request_id", "text"],
+      "defaults": {
+        "voice": "Kore",
+        "tts_mode": "latest"
+      }
     },
     "music": {
-      "task_type": "music"
+      "event_type": "google_music",
+      "required": ["request_id", "prompt"],
+      "defaults": {
+        "mode": "clip"
+      }
     },
-    "batch": {
-      "task_type": "batch_video"
+    "video_single": {
+      "event_type": "google_video",
+      "required": ["request_id", "prompt"],
+      "defaults": {
+        "video_mode": "omni",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 10,
+        "resolution": "720p"
+      },
+      "image_fields": {
+        "first_frame": "first_frame_drive_file_id",
+        "references": "reference_drive_file_ids",
+        "max_reference_images": 8
+      }
+    },
+    "video_batch": {
+      "event_type": "google_video_batch",
+      "required": ["request_id", "segments"],
+      "min_segments": 1,
+      "max_segments": 5,
+      "shared_reference_field": "shared_reference_drive_file_ids",
+      "derived_segment_request_id": "{request_id}-sNN"
     }
   },
-  "principle": "Intent first, provider second"
+  "non_generation_intents": [
+    "chat",
+    "copywriting",
+    "script_writing",
+    "storyboard_planning",
+    "prompt_writing",
+    "analysis"
+  ],
+  "status": {
+    "path_template": ".gpt-media-status/{request_id}.json",
+    "safe_to_repeat_query": true,
+    "terminal": [
+      "success",
+      "failed",
+      "duplicate_or_uncertain_blocked",
+      "request_id_conflict",
+      "provider_uncertain"
+    ]
+  }
 }
