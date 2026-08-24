@@ -1,0 +1,37 @@
+name: Source parts integrity
+
+on:
+  push:
+    paths:
+      - 'source_parts/**'
+      - 'tools/reconstruct_source.py'
+      - '.github/workflows/source-integrity.yml'
+  pull_request:
+    paths:
+      - 'source_parts/**'
+      - 'tools/reconstruct_source.py'
+      - '.github/workflows/source-integrity.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit and reconstruct source archive
+        run: >-
+          python tools/reconstruct_source.py
+          --allow-missing
+          --report build/source-integrity.json
+      - name: Publish audit summary
+        if: always()
+        run: |
+          echo '## JingHua source-part audit' >> "$GITHUB_STEP_SUMMARY"
+          cat build/source-integrity.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-integrity-report
+          path: build/source-integrity.json
