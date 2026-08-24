@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "routes": {
+    "video": {
+      "task_type": "video"
+    },
+    "voice": {
+      "task_type": "audio"
+    },
+    "music": {
+      "task_type": "music"
+    },
+    "batch": {
+      "task_type": "batch_video"
+    }
+  },
+  "principle": "Intent first, provider second"
+}
