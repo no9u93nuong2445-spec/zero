@@ -1,0 +1,34 @@
+name: V4 Control Plane CI
+
+on:
+  pull_request:
+    paths:
+      - "gpt-actions/media-v4.0.0.json"
+      - "router/media_router.json"
+      - "schemas/media_task_schema.json"
+      - "scripts/validate_v4_control_plane.py"
+      - ".github/workflows/v4-control-plane-ci.yml"
+  push:
+    branches:
+      - upgrade/ai-media-os-v4
+    paths:
+      - "gpt-actions/media-v4.0.0.json"
+      - "router/media_router.json"
+      - "schemas/media_task_schema.json"
+      - "scripts/validate_v4_control_plane.py"
+      - ".github/workflows/v4-control-plane-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate V4 contracts
+        run: python scripts/validate_v4_control_plane.py
