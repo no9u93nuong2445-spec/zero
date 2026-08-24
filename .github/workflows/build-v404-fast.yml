@@ -1,0 +1,46 @@
+name: Package JingHua V4.0.4
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Prepare and build V4.0.4
+        shell: bash
+        run: |
+          bash ci/prepare-v404-release.sh
+          gradle --no-daemon --stacktrace -p jhmin clean assembleDebug
+          test -s jhmin/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t jhmin/app/build/outputs/apk/debug/app-debug.apk
+          cp jhmin/app/build/outputs/apk/debug/app-debug.apk JingHua-V4.0.4-debug.apk
+          sha256sum JingHua-V4.0.4-debug.apk | tee V4.0.4-SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JingHua-V4.0.4-debug-apk
+          path: |
+            JingHua-V4.0.4-debug.apk
+            V4.0.4-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14
