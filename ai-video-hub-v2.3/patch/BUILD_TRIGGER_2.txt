@@ -1,0 +1,1 @@
+Final capability-gated Dola V2.3 Windows validation trigger after CI release recorder setup.
