@@ -1,10 +1,239 @@
 {
-  "task_id": "gpt-YYYYMMDD-HHMMSS-xxxx",
-  "type": "video|audio|music|image",
-  "provider": "google|doubao|openai",
-  "input": {},
-  "parameters": {},
-  "output": {},
-  "status": "queued|running|success|failed",
-  "created_at": ""
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/bian-ai-media-os/media-task-v4.schema.json",
+  "title": "Bian AI Media Task V4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_type", "client_payload"],
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": ["google_tts", "google_music", "google_video", "google_video_batch"]
+    },
+    "client_payload": {
+      "oneOf": [
+        { "$ref": "#/$defs/TtsPayload" },
+        { "$ref": "#/$defs/MusicPayload" },
+        { "$ref": "#/$defs/VideoPayload" },
+        { "$ref": "#/$defs/VideoBatchPayload" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event_type": { "const": "google_tts" } } },
+      "then": { "properties": { "client_payload": { "$ref": "#/$defs/TtsPayload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "google_music" } } },
+      "then": { "properties": { "client_payload": { "$ref": "#/$defs/MusicPayload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "google_video" } } },
+      "then": { "properties": { "client_payload": { "$ref": "#/$defs/VideoPayload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "google_video_batch" } } },
+      "then": { "properties": { "client_payload": { "$ref": "#/$defs/VideoBatchPayload" } } }
+    }
+  ],
+  "$defs": {
+    "RequestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{4,100}$"
+    },
+    "BatchRequestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{4,90}$"
+    },
+    "OutputName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "DriveFileId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "VideoTask": {
+      "type": "string",
+      "enum": ["text_to_video", "image_to_video", "reference_to_video", "edit"]
+    },
+    "VideoMode": {
+      "type": "string",
+      "enum": ["omni", "veo", "veo_fast", "veo_lite"]
+    },
+    "ReferenceIds": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/DriveFileId" }
+    },
+    "TtsPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "text"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/RequestId" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 12000 },
+        "voice": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$", "default": "Kore" },
+        "style": { "type": "string", "maxLength": 4000 },
+        "tts_mode": { "type": "string", "enum": ["latest", "fast", "pro"], "default": "latest" },
+        "model": {
+          "type": "string",
+          "enum": [
+            "gemini-3.1-flash-tts-preview",
+            "gemini-2.5-flash-preview-tts",
+            "gemini-2.5-pro-preview-tts"
+          ]
+        },
+        "output_name": { "$ref": "#/$defs/OutputName" }
+      }
+    },
+    "MusicPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "prompt"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/RequestId" },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "mode": { "type": "string", "enum": ["clip", "pro"], "default": "clip" },
+        "model": { "type": "string", "enum": ["lyria-3-clip-preview", "lyria-3-pro-preview"] },
+        "output_name": { "$ref": "#/$defs/OutputName" }
+      }
+    },
+    "OmniVideoSettings": {
+      "type": "object",
+      "properties": {
+        "video_mode": { "const": "omni" },
+        "model": { "const": "gemini-omni-flash-preview" },
+        "duration_seconds": { "type": "integer", "minimum": 3, "maximum": 10, "default": 10 },
+        "resolution": { "const": "720p", "default": "720p" }
+      }
+    },
+    "VeoVideoSettings": {
+      "type": "object",
+      "properties": {
+        "video_mode": { "enum": ["veo", "veo_fast"] },
+        "model": { "enum": ["veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"] },
+        "duration_seconds": { "type": "integer", "enum": [4, 6, 8], "default": 8 },
+        "resolution": { "type": "string", "enum": ["720p", "1080p", "4k"], "default": "720p" }
+      }
+    },
+    "VeoLiteVideoSettings": {
+      "type": "object",
+      "properties": {
+        "video_mode": { "const": "veo_lite" },
+        "model": { "const": "veo-3.1-lite-generate-preview" },
+        "duration_seconds": { "type": "integer", "enum": [4, 6, 8], "default": 8 },
+        "resolution": { "type": "string", "enum": ["720p", "1080p"], "default": "720p" }
+      }
+    },
+    "VideoBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "prompt"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/RequestId" },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 12000 },
+        "video_mode": { "$ref": "#/$defs/VideoMode" },
+        "model": {
+          "type": "string",
+          "enum": [
+            "gemini-omni-flash-preview",
+            "veo-3.1-generate-preview",
+            "veo-3.1-fast-generate-preview",
+            "veo-3.1-lite-generate-preview"
+          ]
+        },
+        "video_task": { "$ref": "#/$defs/VideoTask" },
+        "first_frame_drive_file_id": { "$ref": "#/$defs/DriveFileId" },
+        "reference_drive_file_ids": { "$ref": "#/$defs/ReferenceIds" },
+        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16"], "default": "9:16" },
+        "duration_seconds": { "type": "integer" },
+        "resolution": { "type": "string" },
+        "output_name": { "$ref": "#/$defs/OutputName" }
+      }
+    },
+    "VideoPayload": {
+      "allOf": [
+        { "$ref": "#/$defs/VideoBase" },
+        {
+          "oneOf": [
+            {
+              "if": {
+                "properties": { "video_mode": { "const": "omni" } },
+                "required": ["video_mode"]
+              },
+              "then": { "$ref": "#/$defs/OmniVideoSettings" }
+            },
+            {
+              "if": {
+                "properties": { "video_mode": { "enum": ["veo", "veo_fast"] } },
+                "required": ["video_mode"]
+              },
+              "then": { "$ref": "#/$defs/VeoVideoSettings" }
+            },
+            {
+              "if": {
+                "properties": { "video_mode": { "const": "veo_lite" } },
+                "required": ["video_mode"]
+              },
+              "then": { "$ref": "#/$defs/VeoLiteVideoSettings" }
+            },
+            {
+              "not": { "required": ["video_mode"] },
+              "allOf": [{ "$ref": "#/$defs/OmniVideoSettings" }]
+            }
+          ]
+        }
+      ]
+    },
+    "VideoSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt"],
+      "properties": {
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 12000 },
+        "video_mode": { "$ref": "#/$defs/VideoMode" },
+        "model": {
+          "type": "string",
+          "enum": [
+            "gemini-omni-flash-preview",
+            "veo-3.1-generate-preview",
+            "veo-3.1-fast-generate-preview",
+            "veo-3.1-lite-generate-preview"
+          ]
+        },
+        "video_task": { "$ref": "#/$defs/VideoTask" },
+        "first_frame_drive_file_id": { "$ref": "#/$defs/DriveFileId" },
+        "reference_drive_file_ids": { "$ref": "#/$defs/ReferenceIds" },
+        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16"] },
+        "duration_seconds": { "type": "integer" },
+        "resolution": { "type": "string" },
+        "output_name": { "$ref": "#/$defs/OutputName" }
+      }
+    },
+    "VideoBatchPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "segments"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/BatchRequestId" },
+        "shared_reference_drive_file_ids": { "$ref": "#/$defs/ReferenceIds" },
+        "video_mode": { "$ref": "#/$defs/VideoMode" },
+        "video_task": { "$ref": "#/$defs/VideoTask" },
+        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16"], "default": "9:16" },
+        "duration_seconds": { "type": "integer" },
+        "resolution": { "type": "string" },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/VideoSegment" }
+        }
+      }
+    }
+  }
 }
