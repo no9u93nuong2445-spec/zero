@@ -1,109 +1,85 @@
-# 彼岸 AI 媒体创作中枢（AI Media Workflow Hub）
+# 彼岸 AI Media OS · Control Plane
 
-> 原「净画 Android」测试仓库已升级定位。
+> `zero` 的主定位：**ChatGPT 自定义 GPT 的媒体控制面**。
 >
-> 本仓库现在主要承载 **GPT 自定义工作流 + GitHub Actions 媒体自动化系统**，Android 构建能力作为附属模块保留。
+> 这里负责 GPT 指令、Actions/OpenAPI 契约、路由规则、任务协议与架构文档；真正的媒体生成、状态账本和 Artifact/GCS 交付由私有执行仓库 `doubao-tts-bridge` 承担。原「净画 Android」构建内容继续作为遗留/附属模块保留。
 
-## 项目定位
+## 当前稳定版本
 
-这是一个面向 ChatGPT 自定义 GPT 的 AI 媒体生产中控系统。
+- GPT 指令：`gpt-actions/instructions.txt`（V3，现网兼容）
+- 媒体 Action：`gpt-actions/media.json` / `media.yaml`（V3.0.1）
+- Gemini 文本 Action：`gpt-actions/gemini.json` / `gemini.yaml`
 
-核心目标：
+## V4 升级候选
 
-- 通过 GPT Actions 调度图片、视频、语音、音乐生成任务；
-- 使用 GitHub Actions 作为安全任务执行层；
-- 使用 Artifact / Drive 完成交付；
-- 保证任务幂等、防重复提交和状态追踪。
+V4 不直接覆盖 V3，而是先并行提供候选配置，验证后再切换自定义 GPT：
 
-## 核心架构
+- `gpt-actions/instructions-v4.txt`
+- `gpt-actions/media-v4.0.0.json`
+- `schemas/media_task_schema.json`
+- `router/media_router.json`
+- `docs/ARCHITECTURE.md`
+- `docs/V4-MIGRATION.md`
 
-```
-ChatGPT 自定义 GPT
-        |
-        ↓
-GPT Actions
-        |
-        ↓
-GitHub Workflow Gateway
-        |
-        ↓
-AI Media Provider
-        |
-        ↓
-Artifact / Google Drive 输出
-```
+## 两仓职责
 
-## GPT 工作流
-
-目录：
-
-`gpt-actions/`
-
-包含：
-
-- `instructions.txt`：GPT 行为总控规则
-- `media.json/yaml`：媒体生成 Action 配置
-- `gemini.json/yaml`：Gemini 文本模式配置
-
-支持：
-
-### 视频生成
-
-- 文生视频
-- 首帧图生视频
-- 参考图生视频
-- 多图输入
-- 批量视频任务
-
-### 配音生成
-
-- Google TTS
-- 音色选择
-- 参数控制
-
-### 音乐生成
-
-- Google Music / Lyria
-- 片段音乐
-- 长音乐模式
-
-## 设计原则
-
-- 小而稳，不自动扩大任务范围；
-- 媒体类型独立，不强制串联流水线；
-- request_id 防止重复生成；
-- 状态账本保证任务可追踪；
-- 失败不自动重复消耗模型资源。
-
-## Android 模块
-
-当前保留：
-
-- 净画 Android 构建测试
-- GitHub Actions APK 编译
-- 本地视频处理模式
-
-## 后续方向
-
-本仓库计划成为个人 AI 创作基础设施：
-
-```
-脚本
- ↓
-配音
- ↓
-音乐
- ↓
-视频
- ↓
-作品展示
- ↓
-移动端应用
+```text
+User
+  ↓
+ChatGPT / Custom GPT
+  ↓
+zero  ── Control Plane
+  ├─ instructions
+  ├─ OpenAPI contract
+  ├─ intent routing
+  └─ task/status contract
+  ↓
+doubao-tts-bridge ── Execution Plane
+  ├─ GitHub Actions gateway
+  ├─ request_id durable ledger
+  ├─ Google media bridge
+  ├─ Drive/GCS input-output helpers
+  └─ GitHub Actions Artifact
 ```
 
-与其他项目组合：
+### Control Plane（本仓库）
 
-- my-video-portfolio：作品展示层
-- doubao-tts-bridge：语音能力层
-- my-website：产品应用层
+负责：
 
+- 判断用户是在聊天、写作，还是发起真实媒体生成；
+- 将真实生成映射成 `google_tts`、`google_music`、`google_video`、`google_video_batch`；
+- 生成唯一 `request_id`；
+- 只提交一次创建型请求；
+- 查询持久状态并交付已有结果；
+- 约束模型、时长、分辨率、批量段数和图片输入字段。
+
+### Execution Plane（doubao-tts-bridge）
+
+负责：
+
+- GitHub `repository_dispatch` / 文件队列入口；
+- payload 二次校验；
+- provider 调用；
+- 防重复状态账本；
+- 批量视频并行生成；
+- Artifact 与可选 GCS 直链交付。
+
+## 核心原则
+
+1. **创建请求绝不自动重试。**
+2. **同一个 request_id 永远代表同一份内容和参数。**
+3. **聊天、文案、剧本、分镜、提示词默认由 ChatGPT 完成，不触发付费媒体生成。**
+4. **TTS、音乐、视频互相独立，不自动串成流水线。**
+5. **成功必须由持久状态账本确认；“GitHub 已接受请求”不等于生成成功。**
+6. **交付失败不等于生成失败，下载/Drive/ZIP 问题不得触发重新生成。**
+7. **运行时模型白名单以执行仓库的模型注册表为最终真源，控制面只做前置约束。**
+
+## Android 遗留模块
+
+仓库仍保留净画 Android / APK 构建相关内容，但它不再代表仓库主定位。
+
+## 关联项目
+
+- `doubao-tts-bridge`：媒体执行面与生产工作流
+- `my-video-portfolio`：作品展示层
+- `my-website`：产品应用层
