@@ -1,0 +1,10 @@
+name: Archived V4.0.9 Simple Subtitle App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  archived:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Archived on the V4.1.0 release-candidate branch.'
